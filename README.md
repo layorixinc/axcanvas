@@ -6,11 +6,17 @@ Experimental software. No authentication. Local use by default; explicitly trust
 
 The interface and public documentation default to English. User-authored graph content and feedback retain their original language; no agent plugin, MCP/WebMCP server or skill installation is required.
 
+![English-default workflow in the real axcanvas UI](docs/images/english-default-workflow.png)
+
+The screenshot documents the English-default implementation. It is an example graph, not a claim that conversations are captured or translated automatically.
+
 ## Quick start
 
-Requirements: **Node.js >=24.16** and npm. From the repository root:
+Requirements: **Node.js >=24.16**, npm and Git. Clone the repository and start the local server:
 
 ```sh
+git clone https://github.com/layorixinc/axcanvas.git
+cd axcanvas
 npm ci --omit=dev
 npm start
 ```
@@ -26,6 +32,16 @@ Ask your existing agent:
 > Read http://127.0.0.1:43821/agents.md and use its HTTP tools to write this conversation as a knowledge graph. Reuse one stable sessionId, show me the returned canvasUrl, and read the latest graph and pending feedback before each update.
 
 Use the agent's conversation ID if it is available; otherwise generate a UUID once and reuse it. Resume with the same sessionId or canvas link.
+
+### Your first graph
+
+1. Keep the server running and open the local URL.
+2. Send the prompt above to an agent that can make HTTP requests. The agent should create a session, submit graph content and give you its canvas link.
+3. Open that link. If nodes are not arranged yet, choose **Auto layout**, inspect the preview and click **Apply**.
+4. Edit a node or draw an annotation, add a note and click **Send to agent**. Ask the agent to read the pending feedback; submission does not automatically wake or interrupt it.
+5. Keep the session link when resuming the conversation. The recent-session list belongs to the current browser, not a server-wide directory.
+
+A newly opened session is empty until the first `graph_commit`. You can try the HTTP example below without connecting an agent.
 
 This is **HTTP tool calling, not the MCP protocol**. The server does not automatically collect a conversation, detect turns, interrupt a running CLI or force an agent to call the API. Whether an agent follows the guide depends on that agent and its available HTTP tools.
 
@@ -74,6 +90,28 @@ curl -sS http://127.0.0.1:43821/api/agent/v1 \
   --data-binary '{"requestId":"open-1","sessionId":"demo-session","tool":"session_open","arguments":{"title":"My conversation"}}'
 ```
 
+This creates or resumes an empty example session. To add its first node on a fresh session:
+
+```sh
+curl -sS http://127.0.0.1:43821/api/agent/v1 \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"requestId":"example-commit-1","sessionId":"demo-session","tool":"graph_commit","arguments":{"baseRevision":0,"answerId":"readme-example","nodes":[{"id":"idea","kind":"concept","label":"A shared knowledge canvas","detail":"Created through the HTTP API. People and agents can edit the same graph.","status":"proposed","sources":[]}],"edges":[]}}'
+```
+
+Open http://127.0.0.1:43821/#demo-session to see the node. These curl examples use POSIX shell syntax: use macOS/Linux, Git Bash or WSL. PowerShell users can use this equivalent session-opening call:
+
+```powershell
+$body = @{
+  requestId = "open-1"
+  sessionId = "demo-session"
+  tool = "session_open"
+  arguments = @{ title = "My conversation" }
+} | ConvertTo-Json -Depth 10
+Invoke-RestMethod -Uri "http://127.0.0.1:43821/api/agent/v1" -Method Post -ContentType "application/json" -Body $body
+```
+
+If you have already edited the example session, read its current revision before submitting a different commit. Re-running the exact successful request returns its original result; it does not reset the graph.
+
 Tools:
 - `tools_list`, `session_open`
 - `graph_read`, `graph_commit`, `graph_edit`, `graph_layout`, `graph_history`
@@ -104,6 +142,19 @@ SQLite WAL stores graph history, layout, successful mutation replay results and 
 Stop the server before manually copying/deleting the database and its WAL/SHM files, or use SQLite-consistent backups. Back up before resetting data. Existing databases are preserved; publishing the repository does not require deleting local work.
 
 `.axcanvas/`, `artifacts/`, local `.omp/` settings, private historical reports and common secret-file formats are excluded from Git. Ignore rules are not a secret scanner; review every publication candidate. Do not commit real session URLs or private screenshots.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Startup fails or `node:sqlite` is unavailable | Run `node --version`; use Node.js 24.16 or newer, then install from the repository root. |
+| Port 43821 is already in use | Stop your other axcanvas process or choose another `AXCANVAS_PORT`. Use the same port in the browser and agent URL. |
+| The canvas is empty | `session_open` creates no example nodes. The agent or HTTP client must send `graph_commit`; open the returned session URL. |
+| The agent cannot reach the server | Test `/health` from the agent's own environment. Its localhost may refer to another machine, container or sandbox. Enable trusted-LAN mode only when needed. |
+| Drawing feedback is still pending | Ask the agent to read feedback for the same sessionId. There is no automatic CLI interruption or background model call. |
+| A save returns a revision conflict | Reload/read the latest graph, reconcile your edits and submit with current revisions. Copy unsaved text before reloading. |
+
+For LAN access, verify the server address, explicit bind setting and narrow firewall rule. Do not solve connection problems by exposing the port publicly. See [SECURITY.md](SECURITY.md).
 
 ## Development
 
