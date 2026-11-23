@@ -4,7 +4,7 @@ import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const colors = { concept: '#8aabff', claim: '#dfb675', decision: '#70c8ac', question: '#c4a0ef', task: '#eb9ca3' };
-const names = { concept: '개념', claim: '주장', decision: '결정', question: '질문', task: '작업' };
+const names = { concept: 'Concept', claim: 'Claim', decision: 'Decision', question: 'Question', task: 'Task' };
 let graph = null, selected = null, editRevision = 0, dirty = false, changed = new Set(), renderedRevision = -1, dragging = null, loading = 0;
 let camera = { x: 0, y: 0, w: 1500, h: 1000 };
 let penMode = false, strokes = [], feedbackRevision, events;
@@ -20,7 +20,7 @@ function notice(text) { $('notice').textContent = text; $('notice').hidden = fal
 async function api(tool, args = {}, sessionId = graph?.sessionId) {
   const r = await fetch('/api/agent/v1', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: newId(), sessionId, tool, arguments: args, actor: 'user' }) });
   const data = await r.json();
-  if (!r.ok || data.isError) throw new Error([`${data.error?.code ?? r.status}: ${data.error?.message ?? '요청 실패'}`, data.error?.recovery?.instructions].filter(Boolean).join('\n'));
+  if (!r.ok || data.isError) throw new Error([`${data.error?.code ?? r.status}: ${data.error?.message ?? 'Request failed'}`, data.error?.recovery?.instructions].filter(Boolean).join('\n'));
   return data.result;
 }
 function svg(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); if (text !== undefined) e.textContent = text; return e; }
@@ -115,7 +115,7 @@ $('minimap-toggle').onclick = () => {
   const collapsed = !$('minimap').hasAttribute('hidden');
   $('minimap').toggleAttribute('hidden', collapsed);
   $('minimap-toggle').setAttribute('aria-expanded', String(!collapsed));
-  $('minimap-toggle').textContent = collapsed ? '펼치기' : '접기';
+  $('minimap-toggle').textContent = collapsed ? 'Expand' : 'Collapse';
 };
 new ResizeObserver(updateMinimapView).observe($('canvas'));
 function wrap(text, max = 21) {
@@ -163,7 +163,7 @@ function draw() {
     group.append(svg('title', {}, n.label), svg('rect', { class: 'body', width: 340, height: 150 }), svg('line', { x1: 0, y1: 25, x2: 0, y2: 125, class: 'accent-line', stroke: colors[n.kind] }));
     group.append(svg('text', { x: 20, y: 27, class: 'kind', fill: colors[n.kind] }, names[n.kind].toUpperCase()));
     wrap(n.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
-    group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? '확정' : n.status === 'retired' ? '폐기' : '제안'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
+    group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
     group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(n.id, false, e.ctrlKey); } });
     group.addEventListener('pointerdown', e => {
       if (penMode) return;
@@ -179,12 +179,12 @@ function draw() {
   $('empty').hidden = nodes.length > 0;
 }
 function select(id, discard = false, focus) {
-  if (dirty && !discard) { if (selected?.id !== id) notice('먼저 변경을 저장하거나 다시 읽기를 선택하세요.'); return; }
+  if (dirty && !discard) { if (selected?.id !== id) notice('Save your changes or reload before selecting another node.'); return; }
   if (typeof focus === 'boolean') $('focus-relations').checked = focus;
   selected = graph.nodes.find(n => n.id === id); dirty = false; editRevision = graph.revision;
   $('editor').hidden = !selected; $('hint').hidden = !!selected; $('edit-warning').hidden = true;
   if (selected) {
-    $('inspector-title').textContent = '노드 상세 · 편집'; $('node-kind').textContent = names[selected.kind]; $('node-id').textContent = selected.id;
+    $('inspector-title').textContent = 'Node details and editing'; $('node-kind').textContent = names[selected.kind]; $('node-id').textContent = selected.id;
     $('node-label').value = selected.label; $('node-detail').value = selected.detail; $('node-status').value = selected.status;
     $('sources').replaceChildren();
     for (const source of selected.sources) {
@@ -201,7 +201,7 @@ function select(id, discard = false, focus) {
     item.textContent = `${source.label} → ${target.label}: ${edge.relation}`;
     $('node-relations').append(item);
   }
-  $('feedback-target').textContent = selected ? `선택: ${selected.label} · ${selected.id}` : '선택 없음';
+  $('feedback-target').textContent = selected ? `Selected: ${selected.label} · ${selected.id}` : 'No selection';
   draw(); layoutControls();
 }
 async function loadGraph(id) {
@@ -210,7 +210,7 @@ async function loadGraph(id) {
   if (ticket !== loading) return;
   const previous = graph;
   const isNew = previous?.sessionId !== next.sessionId;
-  if (isNew) { selected = null; dirty = false; strokes = []; feedbackRevision = undefined; $('feedback-note').value = ''; renderedRevision = -1; $('editor').hidden = true; $('hint').hidden = false; $('inspector-title').textContent = '내용을 펼쳐보세요'; }
+  if (isNew) { selected = null; dirty = false; strokes = []; feedbackRevision = undefined; $('feedback-note').value = ''; renderedRevision = -1; $('editor').hidden = true; $('hint').hidden = false; $('inspector-title').textContent = 'Explore the details'; }
   if (next.revision !== renderedRevision) {
     changed = new Set(next.nodes.filter(n => { const old = previous?.nodes.find(p => p.id === n.id); return !old || JSON.stringify(n) !== JSON.stringify(old); }).map(n => n.id));
     renderedRevision = next.revision;
@@ -218,11 +218,11 @@ async function loadGraph(id) {
   graph = next; location.hash = next.sessionId;
   reconcileLayout(next);
   remember(next.sessionId, next.title); renderSessions(); $('sessions').value = next.sessionId;
-  $('title').textContent = next.title; $('subtitle').textContent = `세션 ${next.sessionId}`; $('revision').textContent = `rev ${next.revision}`;
+  $('title').textContent = next.title; $('subtitle').textContent = `Session ${next.sessionId}`; $('revision').textContent = `rev ${next.revision}`;
   $('counts').textContent = `${next.nodes.filter(n => n.status !== 'retired').length} nodes · ${next.edges.filter(e => e.status !== 'retired').length} relations`;
-  $('turn-status').textContent = `rev ${next.revision} 저장됨`;
+  $('turn-status').textContent = `rev ${next.revision} saved`;
   $('turn-status').className = 'turn-status committed';
-  $('turn-detail').textContent = `세션 ${next.sessionId} · HTTP 호출만 관찰하며 agent의 대화 턴을 자동 감지하지 않습니다.`;
+  $('turn-detail').textContent = `Session ${next.sessionId} · Only HTTP calls are observed. Agent conversation turns are not detected automatically.`;
   $('send-feedback').disabled = false;
   if (selected && !dirty) select(selected.id); else if (dirty && editRevision !== next.revision) $('edit-warning').hidden = false;
   draw(); layoutControls(); if (isNew) fit();
@@ -276,7 +276,7 @@ $('canvas').addEventListener('pointerdown', e => {
   if (layoutLocked()) { if (e.button === 0 && !e.target.closest('.graph-node')) startPan(e); return; }
   if (e.button !== 0 || !graph) return;
   if (penMode) {
-    if (strokes.length >= 100) { notice('한 지시는 선 100개까지입니다. 먼저 보내거나 지워주세요.'); return; }
+    if (strokes.length >= 100) { notice('Each instruction supports up to 100 strokes. Send or clear the current drawing first.'); return; }
     feedbackRevision ??= graph.revision;
     const p = screenPoint(e), stroke = { points: [{ x: Math.round(p.x), y: Math.round(p.y) }] };
     strokes.push(stroke); dragging = { ink: true, stroke }; $('canvas').setPointerCapture(e.pointerId); return;
@@ -288,22 +288,22 @@ function zoom(factor) { const w = Math.min(20000, Math.max(350, camera.w * facto
 $('canvas').addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.1 : .9); }, { passive: false });
 $('fit').onclick = fit; $('zoom-in').onclick = () => zoom(.8); $('zoom-out').onclick = () => zoom(1.25); $('show-retired').onchange = draw;
 $('sessions').onchange = () => {
-  if (layoutLocked() || dirty || strokes.length || $('feedback-note').value.trim()) { $('sessions').value = graph?.sessionId ?? ''; notice('먼저 미리보기·편집·지시를 적용하거나 취소하세요.'); return; }
+  if (layoutLocked() || dirty || strokes.length || $('feedback-note').value.trim()) { $('sessions').value = graph?.sessionId ?? ''; notice('Apply or cancel the current preview, edits and instructions first.'); return; }
   loadGraph($('sessions').value).catch(e => notice(e.message));
 };
 $('editor').addEventListener('input', () => { dirty = true; layoutControls(); });
 $('cancel').onclick = () => { dirty = false; loadGraph(graph.sessionId).catch(e => notice(e.message)); };
 $('editor').onsubmit = async e => {
   e.preventDefault(); if (!selected) return; $('save').disabled = true;
-  try { await api('graph_edit', { baseRevision: editRevision, node: { ...selected, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value } }); dirty = false; await refresh(); notice('사용자 변경을 저장했습니다.'); }
-  catch (error) { notice(`저장하지 못했습니다: ${error.message}\n입력은 유지됩니다. 다시 읽기 전에 필요한 내용을 복사하세요.`); }
+  try { await api('graph_edit', { baseRevision: editRevision, node: { ...selected, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value } }); dirty = false; await refresh(); notice('Your changes were saved.'); }
+  catch (error) { notice(`Could not save: ${error.message}\nYour input is preserved. Copy anything you need before reloading.`); }
   finally { $('save').disabled = false; layoutControls(); }
 };
 async function loadHistory() {
   const { history: list } = await api('graph_history'); $('history').replaceChildren();
-  for (const item of list.slice(-12).reverse()) { const li = document.createElement('li'); li.textContent = `rev ${item.revision} · ${item.actor} · ${item.changedNodeIds.length} nodes · ${new Date(item.at).toLocaleTimeString()}`; $('history').append(li); }
+  for (const item of list.slice(-12).reverse()) { const li = document.createElement('li'); li.textContent = `rev ${item.revision} · ${item.actor} · ${item.changedNodeIds.length} nodes · ${new Date(item.at).toLocaleTimeString('en-US')}`; $('history').append(li); }
 }
-$('history-toggle').onclick = async () => { $('history').hidden = !$('history').hidden; $('history-toggle').setAttribute('aria-expanded', String(!$('history').hidden)); $('history-toggle').textContent = $('history').hidden ? '이력 보기' : '접기'; if (!$('history').hidden && graph) try { await loadHistory(); } catch (e) { notice(e.message); } };
+$('history-toggle').onclick = async () => { $('history').hidden = !$('history').hidden; $('history-toggle').setAttribute('aria-expanded', String(!$('history').hidden)); $('history-toggle').textContent = $('history').hidden ? 'Show history' : 'Collapse'; if (!$('history').hidden && graph) try { await loadHistory(); } catch (e) { notice(e.message); } };
 function remember(id, title) {
   const list = visited().filter(item => item.id !== id); list.unshift({ id, title });
   try { localStorage.setItem('axcanvas-recent', JSON.stringify(list.slice(0, 30))); } catch { /* Optional local history; the session URL still works. */ }
@@ -314,13 +314,13 @@ function visited() {
 }
 function renderSessions() {
   const list = visited(); $('sessions').replaceChildren();
-  const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = '최근 연 세션'; $('sessions').append(placeholder);
+  const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = 'Recent sessions'; $('sessions').append(placeholder);
   for (const item of list) { const option = document.createElement('option'); option.value = item.id; option.textContent = item.title; $('sessions').append(option); }
 }
 function connectEvents(sessionId) {
   events?.close(); events = new EventSource(`/api/events?sessionId=${encodeURIComponent(sessionId)}`);
-  events.onopen = () => { $('connection').textContent = '● 연결됨'; $('connection').className = 'connection'; };
-  events.onerror = () => { $('connection').textContent = '● 재연결 중'; $('connection').className = 'connection offline'; };
+  events.onopen = () => { $('connection').textContent = '● Connected'; $('connection').className = 'connection'; };
+  events.onerror = () => { $('connection').textContent = '● Reconnecting'; $('connection').className = 'connection offline'; };
   events.onmessage = () => loadGraph(sessionId).catch(e => notice(e.message));
 }
 function renderInk() {
@@ -329,12 +329,12 @@ function renderInk() {
 }
 async function loadFeedback() {
   const result = await api('feedback_read', { status: 'all' }); $('feedback-list').replaceChildren();
-  const status = { pending: '전달 대기', applied: '적용', needs_clarification: '추가 확인 필요', rejected: '거절' };
+  const status = { pending: 'Pending', applied: 'Applied', needs_clarification: 'Needs clarification', rejected: 'Rejected' };
   for (const item of result.feedback.slice(-5).reverse()) {
     const li = document.createElement('li'); li.dataset.feedbackId = item.id;
     const summary = document.createElement('strong'); summary.textContent = `${status[item.status]} · ${item.strokes.length} strokes`;
-    const note = document.createElement('p'); note.textContent = item.note || '그림 지시';
-    const link = document.createElement('a'); link.href = item.imageUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = '제출 당시 그림';
+    const note = document.createElement('p'); note.textContent = item.note || 'Drawing instruction';
+    const link = document.createElement('a'); link.href = item.imageUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Submitted drawing';
     li.append(summary, note, link); if (item.resolution) { const resolution = document.createElement('p'); resolution.textContent = item.resolution; li.append(resolution); }
     $('feedback-list').append(li);
   }
@@ -346,12 +346,12 @@ $('send-feedback').onclick = async () => {
   if (!graph) return; $('send-feedback').disabled = true;
   try {
     await api('feedback_submit', { baseRevision: feedbackRevision ?? graph.revision, note: $('feedback-note').value, nodeIds: selected ? [selected.id] : [], strokes });
-    strokes = []; feedbackRevision = undefined; $('feedback-note').value = ''; renderInk(); layoutControls(); await loadFeedback(); notice('지시를 제출했습니다. agent에게 피드백을 읽으라고 요청하세요.');
+    strokes = []; feedbackRevision = undefined; $('feedback-note').value = ''; renderInk(); layoutControls(); await loadFeedback(); notice('Instruction submitted. Ask your agent to read the feedback.');
   } catch (error) { notice(error.message); }
   finally { $('send-feedback').disabled = false; }
 };
 $('open-session').onclick = async () => {
-  if (layoutLocked() || dirty || strokes.length || $('feedback-note').value.trim()) { notice('먼저 미리보기·편집·지시를 적용하거나 취소하세요.'); return; }
+  if (layoutLocked() || dirty || strokes.length || $('feedback-note').value.trim()) { notice('Apply or cancel the current preview, edits and instructions first.'); return; }
   const id = $('session-id').value.trim() || newId();
   try { await api('session_open', { title: `Canvas ${id}` }, id); await refresh(id); $('session-id').value = ''; }
   catch (error) { notice(error.message); }
@@ -359,7 +359,7 @@ $('open-session').onclick = async () => {
 window.addEventListener('hashchange', () => {
   const id = decodeURIComponent(location.hash.slice(1));
   if (!id || id === graph?.sessionId) return;
-  if (layoutLocked() || hasDraft()) { location.hash = graph?.sessionId ?? ''; notice('먼저 미리보기·편집·지시를 적용하거나 취소하세요.'); return; }
+  if (layoutLocked() || hasDraft()) { location.hash = graph?.sessionId ?? ''; notice('Apply or cancel the current preview, edits and instructions first.'); return; }
   loadGraph(id).catch(e => notice(e.message));
 });
 refresh().catch(e => notice(e.message));
@@ -369,7 +369,7 @@ function layoutLocked() { return !!(layoutJob || layoutPreview || layoutSaving);
 function layoutControls() {
   const locked = layoutLocked(), draft = hasDraft(), available = !!graph?.nodes.some(n => n.status !== 'retired');
   $('auto-layout').disabled = !available || locked || draft;
-  $('auto-layout').textContent = layoutJob ? '계산 중…' : '자동 정렬';
+  $('auto-layout').textContent = layoutJob ? 'Computing…' : 'Auto layout';
   $('apply-layout').hidden = !layoutPreview; $('apply-layout').disabled = layoutSaving;
   $('cancel-layout').hidden = !layoutJob && !layoutPreview; $('cancel-layout').disabled = layoutSaving;
   $('undo-layout').disabled = !layoutUndo || locked || draft;
@@ -380,17 +380,17 @@ function layoutControls() {
   $('send-feedback').disabled = locked || !graph;
   const state = layoutSaving ? 'saving' : layoutJob ? 'computing' : layoutPreview ? 'preview' : 'idle';
   $('layout-status').dataset.state = state;
-  $('layout-status').textContent = layoutSaving ? '레이아웃 저장 중…' : layoutJob ? 'Worker에서 배치·연결 계산 중…' : layoutPreview ? '미리보기 · 아직 저장하지 않았습니다.' : draft ? '편집·그림·지시를 먼저 저장하거나 지워주세요.' : layoutUndo ? '적용됨 · 현재 탭에서 한 단계 되돌릴 수 있습니다.' : graph?.edges.some(e => e.status === 'active') && !Object.keys(graph.routes ?? {}).length ? '정렬하면 노드를 피해 연결을 정리합니다.' : '명시적으로 정렬할 때만 위치를 변경합니다.';
+  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing positions and routes in a Worker…' : layoutPreview ? 'Preview — not saved yet.' : draft ? 'Save or clear your edits, drawing and instructions first.' : layoutUndo ? 'Applied — one undo is available in this tab.' : graph?.edges.some(e => e.status === 'active') && !Object.keys(graph.routes ?? {}).length ? 'Run layout to route connections around nodes.' : 'Positions change only when you run layout.';
 }
 function cancelLayout(reason = '') {
   if (layoutSaving) return;
-  if (layoutJob) { const job = layoutJob; layoutJob = null; job.reject(new Error('정렬 취소')); job.elk?.terminateWorker(); clearTimeout(job.timer); }
+  if (layoutJob) { const job = layoutJob; layoutJob = null; job.reject(new Error('Layout cancelled')); job.elk?.terminateWorker(); clearTimeout(job.timer); }
   if (layoutPreview) { camera = { ...layoutPreview.cameraBefore }; layoutPreview = null; view(); }
   draw(); layoutControls(); if (reason) notice(reason);
 }
 function reconcileLayout(next) {
   const pending = layoutJob ?? layoutPreview;
-  if (!layoutSaving && pending && (pending.sessionId !== next.sessionId || pending.baseRevision !== next.revision || pending.baseLayoutRevision !== next.layoutRevision)) cancelLayout('그래프나 위치가 바뀌어 오래된 정렬 결과를 취소했습니다. 다시 정렬하세요.');
+  if (!layoutSaving && pending && (pending.sessionId !== next.sessionId || pending.baseRevision !== next.revision || pending.baseLayoutRevision !== next.layoutRevision)) cancelLayout('The graph or positions changed. The outdated layout was cancelled; run layout again.');
   if (layoutUndo && (layoutUndo.sessionId !== next.sessionId || layoutUndo.baseRevision !== next.revision || layoutUndo.expectedLayoutRevision !== next.layoutRevision)) layoutUndo = null;
   if (!layoutLocked() && next.layoutDirection) $('layout-direction').value = next.layoutDirection;
 }
@@ -399,20 +399,20 @@ async function previewLayout() {
   const cancelled = Promise.withResolvers();
   const job = { id: newId(), sessionId: graph.sessionId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
   layoutJob = job; layoutControls();
-  job.timer = setTimeout(() => job.reject(new Error('정렬 계산이 30초를 초과했습니다. 기존 레이아웃을 유지합니다.')), 30000);
+  job.timer = setTimeout(() => job.reject(new Error('Layout exceeded 30 seconds. The existing layout is preserved.')), 30000);
   try {
     await Promise.race([document.fonts.ready, cancelled.promise]);
     if (layoutJob !== job) return;
     const measure = document.createElement('canvas').getContext('2d');
-    if (!measure || typeof window.ELK !== 'function') throw new Error('레이아웃 엔진 또는 글꼴 측정을 사용할 수 없습니다.');
+    if (!measure || typeof window.ELK !== 'function') throw new Error('The layout engine or font measurement is unavailable.');
     measure.font = `13px ${getComputedStyle(document.body).fontFamily}`;
     const labels = Object.fromEntries(job.snapshot.edges.filter(e => e.status === 'active').map(e => { const text = shortRelation(e.relation); return [e.id, { text, width: Math.ceil(measure.measureText(text).width) + 20, height: 28 }]; }));
     job.elk = new window.ELK({
       workerUrl: '/vendor/elk-worker.js', algorithms: ['layered'],
       workerFactory: url => {
         const worker = new Worker(url);
-        worker.addEventListener('error', event => job.reject(new Error(event.message || '레이아웃 Worker를 불러오지 못했습니다.')));
-        worker.addEventListener('messageerror', () => job.reject(new Error('레이아웃 Worker 응답을 읽지 못했습니다.')));
+        worker.addEventListener('error', event => job.reject(new Error(event.message || 'Could not load the layout Worker.')));
+        worker.addEventListener('messageerror', () => job.reject(new Error('Could not read the layout Worker response.')));
         return worker;
       }
     });
@@ -421,7 +421,7 @@ async function previewLayout() {
     const layout = extractLayout(output, job.direction);
     layoutPreview = { id: job.id, sessionId: job.sessionId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, layout, before: { positions: job.snapshot.positions, routes: job.snapshot.routes, direction: job.snapshot.layoutDirection }, cameraBefore: { ...camera } };
     layoutJob = null; draw(); fit();
-  } catch (error) { if (layoutJob === job) notice(`정렬하지 못했습니다: ${error.message}`); }
+  } catch (error) { if (layoutJob === job) notice(`Could not compute layout: ${error.message}`); }
   finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; layoutControls(); }
 }
 async function applyLayout() {
@@ -430,9 +430,9 @@ async function applyLayout() {
   try {
     const saved = await api('graph_layout', { baseRevision: candidate.baseRevision, baseLayoutRevision: candidate.baseLayoutRevision, mode: 'replace', ...candidate.layout }, candidate.sessionId);
     layoutUndo = { sessionId: candidate.sessionId, baseRevision: candidate.baseRevision, expectedLayoutRevision: saved.layoutRevision, before: candidate.before, cameraBefore: candidate.cameraBefore };
-    await loadGraph(candidate.sessionId); fit(); notice('자동 정렬을 저장했습니다.');
+    await loadGraph(candidate.sessionId); fit(); notice('Auto layout saved.');
   } catch (error) {
-    camera = { ...candidate.cameraBefore }; view(); notice(`정렬을 저장하지 못했습니다: ${error.message}`); await loadGraph(candidate.sessionId);
+    camera = { ...candidate.cameraBefore }; view(); notice(`Could not save layout: ${error.message}`); await loadGraph(candidate.sessionId);
   } finally { layoutSaving = false; layoutControls(); draw(); }
 }
 async function undoLayout() {
@@ -440,8 +440,8 @@ async function undoLayout() {
   const undo = layoutUndo; layoutSaving = true; layoutControls();
   try {
     await api('graph_layout', { baseRevision: undo.baseRevision, baseLayoutRevision: undo.expectedLayoutRevision, mode: 'replace', ...undo.before }, undo.sessionId);
-    layoutUndo = null; await loadGraph(undo.sessionId); camera = { ...undo.cameraBefore }; view(); notice('정렬 이전 레이아웃으로 되돌렸습니다.');
-  } catch (error) { notice(`되돌리지 못했습니다: ${error.message}`); await loadGraph(undo.sessionId); }
+    layoutUndo = null; await loadGraph(undo.sessionId); camera = { ...undo.cameraBefore }; view(); notice('The previous layout was restored.');
+  } catch (error) { notice(`Could not undo layout: ${error.message}`); await loadGraph(undo.sessionId); }
   finally { layoutSaving = false; layoutControls(); draw(); }
 }
 $('auto-layout').onclick = previewLayout;

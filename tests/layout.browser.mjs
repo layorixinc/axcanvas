@@ -11,8 +11,8 @@ export async function verifyLayoutWorkflow(page, baseUrl) {
   }
   const node = id => ({ id, kind: 'concept', label: id === 'b' ? 'API server' : id, detail: 'Browser regression fixture', status: 'confirmed', sources: [] });
   const edge = (id, source, target, relation = 'uses') => ({ id, source, target, relation, status: 'active' });
-  await call('session_open', { title: '레이아웃 브라우저 회귀 검증' });
-  await call('graph_commit', { baseRevision: 0, answerId: 'fixture', nodes: ['a','b','c','d','e','isolated'].map(node), edges: [edge('ab','a','b'),edge('bc','b','c','길이가 긴 관계도 라벨 크기를 고려해 서로 겹치지 않도록 배치한다'),edge('bc2','b','c','also uses'),edge('cb','c','b','returns'),edge('bd','b','d'),edge('loop','d','d','self')] });
+  await call('session_open', { title: 'Layout browser regression' });
+  await call('graph_commit', { baseRevision: 0, answerId: 'fixture', nodes: ['a','b','c','d','e','isolated'].map(node), edges: [edge('ab','a','b'),edge('bc','b','c','A deliberately long relationship label that must remain readable without overlapping nodes'),edge('bc2','b','c','also uses'),edge('cb','c','b','returns'),edge('bd','b','d'),edge('loop','d','d','self')] });
   const original = await call('graph_read');
   const cases = [], workerUrls = [];
   const onWorker = worker => workerUrls.push(worker.url());

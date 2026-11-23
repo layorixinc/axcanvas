@@ -11,6 +11,7 @@ import { verifyConnectionFocus } from '../tests/focus.browser.mjs';
 import { verifyMiddleButtonPan } from '../tests/canvas-pan.browser.mjs';
 import { verifyFitCenter } from '../tests/fit.browser.mjs';
 import { verifyMinimap } from '../tests/minimap.browser.mjs';
+import { verifyEnglishDefaults } from '../tests/english.browser.mjs';
 
 const dir = await mkdtemp(join(tmpdir(), 'axcanvas-browser-'));
 const resultsDir = resolve('test-results');
@@ -21,6 +22,9 @@ try {
   page = await browser.newPage();
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
+  const english = await verifyEnglishDefaults(page, app.url);
+  await mkdir(resultsDir, { recursive: true });
+  await page.screenshot({ path: join(resultsDir, 'english-default.png'), fullPage: true });
   const layout = await verifyLayoutWorkflow(page, app.url);
   await page.reload(); await page.waitForSelector('.graph-node');
   const selection = await verifyCanvasSelection(page);
@@ -63,7 +67,7 @@ try {
   assert.deepEqual(pageErrors, [], 'Browser must not emit uncaught JavaScript errors');
   await mkdir(resultsDir, { recursive: true });
   await page.screenshot({ path: join(resultsDir, 'browser.png'), fullPage: true });
-  console.log(JSON.stringify({ layout, selection, focus, pan, fit, minimap, editAndDrawingFeedback: 'passed' }, null, 2));
+  console.log(JSON.stringify({ english, layout, selection, focus, pan, fit, minimap, editAndDrawingFeedback: 'passed' }, null, 2));
 } catch (error) {
   if (page && !page.isClosed()) {
     await mkdir(resultsDir, { recursive: true });

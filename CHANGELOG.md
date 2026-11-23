@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Default application text, accessibility labels and public documentation to English without translating user graph or feedback content.
+- Format history times in English while retaining the local time zone.
+- Add Korean-locale/multilingual browser coverage and keep the minimap clear of canvas controls at narrow and medium widths.
+
 ## 0.1.0 — experimental — 2026-11-24
 
 - Agent-neutral HTTP tools, discoverable schemas/OpenAPI, SQLite graph history and idempotent mutations.
