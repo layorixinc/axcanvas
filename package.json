@@ -1,0 +1,25 @@
+{
+  "name": "axcanvas",
+  "version": "0.1.0",
+  "description": "Agent-neutral knowledge canvas with a local HTTP API",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.16.0" },
+  "scripts": {
+    "start": "node src/server.ts",
+    "test": "node --test --test-concurrency=1 tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "test:browser": "node scripts/test-browser.mjs",
+    "check": "npm test && npm run typecheck && node --check public/app.js && node --check public/layout.js"
+  },
+  "dependencies": {
+    "elkjs": "0.12.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "puppeteer": "25.18.1",
+    "typescript": "5.9.3"
+  }
+}

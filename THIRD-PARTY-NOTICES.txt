@@ -1,0 +1,27 @@
+axcanvas third-party notices
+==========================
+
+Original axcanvas code is licensed under MIT (see LICENSE). This does not
+relicense dependencies. Keep their original notices when redistributing them.
+
+ELKjs 0.12.1
+------------
+Copyright (c) Kiel University and other upstream contributors.
+License: EPL-2.0 OR GPL-3.0-or-later. axcanvas uses the EPL-2.0 option.
+The unmodified API and Worker files are served to browser recipients.
+EPL-2.0 text: /licenses/elkjs.txt (repository: licenses/ELKjs-LICENSE.txt).
+Source is available under EPL-2.0 from the exact upstream revision:
+https://github.com/kieler/elkjs/tree/624ae90aa37110033a8af59c5ccbb292708b4317
+Upstream project and build instructions: https://github.com/kieler/elkjs
+Underlying Eclipse Layout Kernel sources: https://github.com/eclipse-elk/elk
+Retain the upstream copyright, license and source-availability notices.
+Any modifications to EPL-covered code must comply with that license.
+
+Zod 4.6.7
+---------
+License: MIT. See licenses/Zod-LICENSE.txt for the upstream notice.
+Source: https://github.com/colinhacks/zod/tree/v4.6.7
+
+Development tools, including Puppeteer, TypeScript and Node type declarations,
+are obtained separately through npm. Their upstream distributions contain
+their own licenses; they are not relicensed by the axcanvas MIT license.

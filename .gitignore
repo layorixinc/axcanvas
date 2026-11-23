@@ -1,0 +1,19 @@
+node_modules/
+.axcanvas/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+artifacts/
+.omp/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+coverage/
+test-results/
+*.tgz
+# Historical reports retain private infrastructure/session details locally.
+/docs/VERIFICATION.md
+/docs/*-VERIFICATION.md
+/docs/LAYOUT-REVIEW.md
