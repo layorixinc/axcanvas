@@ -10,11 +10,11 @@ Existing **Fit** continues to fit the whole current flow, potentially changing z
 
 ## Placement and access
 
-- Primary location: bottom navigation cluster, immediately before Fit, using a target/crosshair SVG icon.
+- Primary location: the upper command toolbar, immediately after View, using a target/crosshair SVG icon. This keeps selection navigation discoverable without extending the bottom status/zoom cluster. Do not add a second persistent copy beside Fit.
 - Accessible name/tooltip: `Center selection (F)`; use a real button with native disabled state and the workspace's normal desktop/touch target sizes.
 - Alternate access: View → Center selection and the node/selection context menu. These dispatch the same command, not separate implementations.
 - Shortcut: F while the canvas has keyboard context. Ignore inputs, textareas, selects, editable content, IME composition, modal dialogs, modifier shortcuts and minimap keyboard handling.
-- Do not add a permanent left-toolbox mode. Clicking Center does not change Select/Hand/Draw/Erase or the selection.
+- This is a one-shot toolbar action, not a left-toolbox editing mode. Clicking Center does not change Select/Hand/Draw/Erase or the selection; do not show an active/pressed mode state. On narrow screens keep it reachable in the existing View menu if the toolbar cannot fit its normal touch target, without wrapping into an additional row.
 - Do not automatically center on every node click. Keep the existing spatial stability during selection, dragging and multi-selection.
 
 ## Target and camera semantics
