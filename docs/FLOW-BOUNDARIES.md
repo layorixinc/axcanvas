@@ -1,116 +1,128 @@
-# Explicit graph start and end boundaries
+# Scoped flows and start/end roles
 
-Status: design only. No runtime or storage changes have been implemented for this feature.
+Status: design only. No flow-boundary runtime/storage feature has been implemented. This revision replaces the earlier single graph-wide flow proposal.
 
-## Meaning
-A start node is an explicit entry point for reading a flow; an end node is an explicit destination or conclusion. These are not edge source/target IDs, execution state, completion status or a new node kind. Preserve concept/claim/decision/question/task and proposed/confirmed/retired independently.
+## Decision: scoped roles, displayed as tags
+Multiple start/end nodes alone do not describe which flow they belong to. The same stable node can be a turn's end, the next turn's start and an ordinary node in the whole knowledge graph.
 
-Do not infer boundaries from zero indegree/outdegree. Knowledge graphs can contain references, cycles and disconnected content. Existing graphs and non-flow knowledge maps may leave boundaries unset; show Not set rather than inventing meaning. Agent guidance should explicitly set meaningful starts/ends when producing a flow.
+Use structured flow membership and boundary roles. Display them as compact tags/badges, but do not store ambiguous free-form combinations such as start, end, turn-1, turn-2. A role always belongs to one identified flow. Node kind, proposal/confirmation/retirement status and edge direction remain independent.
 
-## Representation
-Add semantic graph metadata:
+## Flows and membership
+Add graph-level flows, keyed/upserted by stable flow ID:
 
 ```json
 {
-  "flow": {
-    "startNodeIds": ["question"],
-    "endNodeIds": ["conclusion", "alternative-conclusion"]
-  }
+  "flows": [
+    {
+      "id": "whole",
+      "scope": "graph",
+      "label": "Whole graph",
+      "startNodeIds": ["question"],
+      "endNodeIds": ["final-conclusion"]
+    },
+    {
+      "id": "turn-1",
+      "scope": "turn",
+      "turnId": "turn-1",
+      "label": "Turn 1",
+      "nodeIds": ["question", "shared-result"],
+      "edgeIds": ["question-result"],
+      "startNodeIds": ["question"],
+      "endNodeIds": ["shared-result"]
+    },
+    {
+      "id": "turn-2",
+      "scope": "turn",
+      "turnId": "turn-2",
+      "label": "Turn 2",
+      "nodeIds": ["shared-result", "final-conclusion"],
+      "edgeIds": ["result-conclusion"],
+      "startNodeIds": ["shared-result"],
+      "endNodeIds": ["final-conclusion"]
+    }
+  ]
 }
 ```
 
-Use graph-level ID sets rather than overloading node.kind or adding artificial START/END graph nodes. This preserves old node payloads and avoids resetting a marker when an older client updates an unrelated node field.
+The IDs above illustrate metadata; referenced graph entities must actually exist. scope is graph, turn or custom. A graph scope covers all active nodes/edges implicitly; permit at most one active whole-graph scope. Turn/custom scopes have explicit nodeIds and edgeIds, so later unrelated edges between shared nodes do not silently become part of an earlier flow.
 
-- Support multiple starts and ends for branches and disconnected subflows.
-- The same active node can be both start and end, including a single-node flow or a return-to-origin explanation.
-- IDs must exist in the resulting graph and refer to non-retired nodes. Reject duplicates and foreign/missing IDs with actionable field errors; never silently coerce input.
-- Input graph_commit.flow is optional: omission preserves existing metadata, presence replaces both sets, and two explicit empty lists clear the markers.
-- Nodes/edges created in the same commit can be referenced by its flow metadata. Validate the complete resulting graph, not operation order.
-- Agent retirement of a marked node must explicitly update/clear its boundary membership in the same commit; reject dangling metadata atomically. Human Retire node stages the corresponding marker removals and exposes them in Review changes.
+- One node or edge can belong to several flows without copying its semantic identity or content.
+- Each flow can have several start/end IDs. A role references an active member node, not another flow's node.
+- The same node can be start and end within a flow; see the layout feasibility rule below.
+- Reject duplicates, missing/retired members, edges outside membership and boundary IDs outside their flow with actionable field errors.
+- Do not infer roles from indegree/outdegree or merge distinct branches into an invented start/end.
+- A turn scope uses an agent-provided stable turn identity. Existing answerId/history and sources provide provenance, not automatic flow membership; graph revision is not a turn number.
+- The server must not claim it detects external conversation turns. Several commits can refine one turn; one reused node can participate in later turns.
+- A turn view shows current graph content for that membership. Historical content comes from immutable history/submission snapshots, not copied semantic nodes or a claim to reconstruct an unrecorded transcript.
 
 ## Agent API and persistence
-- Extend graph_read and generated tool/OpenAPI contracts with flow. Extend graph_commit for atomic metadata-only or combined node/edge/flow commits. Do not add a separate out-of-band marker API or bypass revision checks.
-- Treat a boundary change as semantic: increment revision, record flowChanged and before/after metadata in history, invalidate stale routes without moving saved coordinates, and preserve successful request replay behavior.
-- Add a non-destructive SQLite metadata column defaulting to empty sets. Existing graphs, old snapshots and submitted packets default to unmarked; do not retroactively rewrite their meaning.
-- Agent instructions: read current graph, set appropriate starts/ends explicitly, preserve other boundaries on unrelated updates, and never fabricate flow semantics for a pure relationship map.
+- Extend graph_read and generated tool/OpenAPI schemas with flows. graph_commit.flows upserts complete definitions by ID; omission preserves existing flows. Explicit retired/removed flow IDs are handled atomically and recorded in history.
+- Do not keep a parallel singular flow alias: that proposal was never implemented. No compatibility shim is needed for an unshipped design.
+- Validate the resulting graph after combined node/edge/flow changes. Newly created entities can be members in the same commit.
+- Metadata-only flow commits increment semantic revision and record the actual flow before/after delta. Preserve replay and optimistic concurrency rules.
+- Agent retirement of a marked/member entity must explicitly repair affected flows in the same commit. Human retirement stages the related membership/role changes and exposes them in review.
+- Use additive SQLite migration with an empty flow collection for existing graphs. Never invent old turn memberships or rewrite historical snapshots.
+- Agent instructions: declare the current turn/custom scope and appropriate boundaries, preserve other flows on unrelated updates, reuse node IDs and register shared membership explicitly.
 
-## Human draft and review integration
-- Add draft_change operation {type:"flow",flow:{startNodeIds,endNodeIds}}.
-- Inspector controls: Mark as start, Mark as end and Clear flow role. Both checks may be enabled; existing node type/status controls remain separate.
-- Add a Flow boundaries summary listing starts/ends by label and ID. Unset roles are visible as Not set.
-- Keep all human marker changes draft-local until final Submit. They participate in durable Undo/Redo, net-zero diff, reload, review token invalidation, both canonical revision checks and one-shot notification.
-- Review includes a dedicated flow before/after change, not a fabricated node edit. Removing a newly created marked node leaves no phantom boundary change.
-- Rebase must merge independent role additions/removals safely and surface incompatible changes for explicit resolution. Never allow Undo after rebase to restore a stale base and erase remote markers.
-- Submitted feedback includes immutable before/after flow metadata; later changes cannot alter the historical packet.
+## Human drafts and review
+- Add flow create/update/retire draft operations; durable Undo/Redo, net-zero diff and reload cover memberships, roles and scope layouts.
+- Inspector exposes Mark as start/Mark as end for the selected flow, plus every other flow membership/role. The selected flow must be explicit before editing a role.
+- Retiring a node/edge stages membership cleanup and role removal. Removing a newly created marked node must not leave a phantom flow change.
+- Review shows dedicated flow/membership/role and per-view layout diffs. Final Submit atomically publishes them with the rest of the draft and creates only one notification.
+- Rebase merges independent flow changes and reports incompatible membership/role changes. Undo after rebase cannot restore stale remote metadata.
+- Review tokens and Worker jobs bind the draft version and relevant flow definitions. Editing another role or scope invalidates affected previews.
+- Drawings must retain their flow ID and captured frame. Do not reinterpret coordinates after a scope/view switch; require explicit preservation of the captured annotation or clearing it. Submitted snapshots retain the exact view and boundary tags.
 
 ## Canvas presentation
-- Place START, END or START + END badges in the existing node header area. Preserve node IDs, kinds, dimensions, labels, connection arrows and existing coordinates.
-- Use text and a distinct outline/icon treatment, not color alone. Include boundary role in accessible names and inspector text. All application labels remain English; original node text is unchanged.
-- Distinguish boundary markers in the minimap without relying on tiny text or conflicting with selection/focus styling.
-- The review snapshot and submitted feedback SVG must show the same boundary badges as the canvas. Include them in fitting/geometry if the eventual badge design extends outside the node; prefer an inset design to avoid changing bounds.
-- Changing metadata must not auto-rearrange a user's graph. Saved positions remain stable until explicit layout.
+- A Scope selector offers Whole graph, named turns and custom flows. The default is Whole graph; selection is view state, not a new semantic mutation.
+- Display START, END or START + END for the selected scope inside the node header. If a node has other roles, show a compact additional-role count; inspector/tooltip lists each qualified role, such as Turn 1 · END and Turn 2 · START.
+- Do not draw every turn's role as if it were a whole-graph boundary. Keep kind/status text, IDs, node dimensions and original user labels.
+- Use text and distinct shape/outline cues, not color alone. Accessible names include the qualified scope/role. All product labels remain English.
+- The minimap, review snapshot and submitted SVG show the same selected scope and role meaning.
+- Turn/custom views show their explicit members and edges; references to outside context are indicated without silently including extra semantic members.
 
-## Boundary-aware automatic layout: mandatory constraints
-Start/end metadata is an actual Auto layout input, not merely a badge or an ordering preference. Whenever active boundaries exist, Auto layout must honor them and validate the resulting geometry before offering a successful preview.
+## Automatic layout uses one explicit scope
+The previous global leading/trailing-layer guarantee applies to the flow being laid out, not to every tag from every turn at once. Overlapping scopes can impose contradictory orders on the same shared node. Never merge all START/END tags into global constraints.
 
-### Placement contract
-- RIGHT: all marked starts share the leading (leftmost) boundary layer; all marked ends share the trailing (rightmost) boundary layer.
-- DOWN: all marked starts share the leading (topmost) layer; all marked ends share the trailing (bottommost) layer.
-- Unmarked nodes belong between the marked layers when both exist. If only one boundary type is set, enforce that boundary and leave the opposite side unconstrained.
-- Multiple starts/ends share their respective layer, with spacing on the perpendicular axis. A short disconnected flow must not put its end earlier than the shared end layer of a longer flow.
-- Unmarked disconnected nodes remain in the middle region instead of being packed before starts or after ends.
-- With no boundary metadata, retain the existing layout behavior. Manual movement remains permitted and never silently changes boundary roles; the placement guarantee applies to explicit Auto layout.
+- Whole graph Auto layout uses whole-graph boundaries across all active nodes and edges.
+- Turn/custom Auto layout uses that scope's members, edges and roles. Its starts are the first layer and its ends the last within that view.
+- In RIGHT, starts share the leftmost layer and ends the rightmost; in DOWN, starts share the topmost layer and ends the bottommost.
+- Multiple starts/ends share their respective band. Unmarked members remain between the applicable boundaries, including disconnected members.
+- A shared node may legitimately occupy a different position in another view. Store per-flow view geometry separately from the existing whole-graph positions/routes; never duplicate the semantic node or overwrite the whole-graph layout merely by arranging a turn view.
+- Existing whole-graph layout storage remains the default view. Non-global layouts are distinct scoped geometry, not aliases. Use revision checks and invalidate affected routes after semantic/membership changes while preserving saved coordinates.
+- Applying layout changes only the current draft view. Publish reviewed view geometry with the final packet; do not move nodes automatically when tags change.
+- Do not claim all overlapping scope constraints were honored by one flat layout. Simultaneous multi-flow compound layout would require its own satisfiability/geometry contract; it is not a fallback for the defined scope-selection behavior.
 
-### Real ELK configuration
-- Keep native same-origin Worker execution, layered/ORTHOGONAL routing, measured labels, fixed node dimensions, existing spacing and stable node/edge identities.
-- Set per-node org.eclipse.elk.layered.layering.layerConstraint to FIRST_SEPARATE for start-only nodes, LAST_SEPARATE for end-only nodes, and NONE for unmarked nodes.
-- Use a documented compatible cycle-breaking strategy such as GREEDY_MODEL_ORDER. Internal cycle breaking must not mutate the stored relationship direction or labels.
-- Set org.eclipse.elk.separateConnectedComponents=false while boundaries are active. Independent component packing does not guarantee a shared leading/trailing layer across the complete graph.
-- Do not compute ordinary layout and then drag start/end nodes to the edges: that would invalidate routed paths and labels. Constraints must enter the Worker calculation itself.
+### Engine constraints and postconditions
+Use the real same-origin ELK layered/ORTHOGONAL Worker with label measurements, spacing and stable identities. For the selected scope, use FIRST_SEPARATE for start-only members, LAST_SEPARATE for end-only members and NONE for other members, with a documented compatible strategy such as GREEDY_MODEL_ORDER.
 
-### Result validation and failure
-Validate the actual rectangles, not only the engine options or node-array order. For RIGHT, verify starts' x positions form the leading band, ends' x positions form the trailing band, and non-boundary rectangles lie strictly between the applicable bands without overlap. For DOWN use y/height instead. Account for floating-point tolerance and the existing layer-spacing contract.
+Use separateConnectedComponents=false within the selected scope to avoid packing short disconnected flows at inconsistent boundary positions. Do not run ordinary layout and then move start/end nodes independently, which would break routes and labels.
 
-Also validate every active node has finite geometry, node/label overlap rules, complete orthogonal routes and preserved edge source/target semantics. A fulfilled ELK promise alone is not proof the requested ordering was achieved.
+Validate actual rectangles: leading/trailing bands, strictly intermediate unmarked members, finite positions, non-overlap, labels, complete routes and preserved edge endpoints/directions. Engine success alone is insufficient. On infeasible/invalid output, preserve the old view geometry and do not enable Apply. Never silently drop constraints, remove cycles, invent edges or clear roles.
 
-If the engine fails or the result violates the boundary contract, show a truthful boundary-layout error, preserve the previous graph/positions/routes and do not enable Apply for that result. Never silently revert to unconstrained placement, invent edges, remove cycles, relabel roles or claim the boundaries were honored.
+A single-member flow can mark its node both start and end, even when other scopes contain many nodes. If a flow with multiple members gives the same node both roles, two separated boundary layers cannot both hold; reject that scope's Auto layout with actionable guidance, without deleting valid metadata or silently placing it normally.
 
-A single active node marked both start and end is valid and occupies the only layer. With other active nodes, a node in both sets cannot satisfy two separated global boundary layers: reject that Auto layout request with actionable guidance to choose distinct boundaries or explicitly clear a role. Preserve the metadata and old layout; do not silently give the dual-role node ordinary placement.
+Cycles, self-loops and links between boundary nodes are not rejected merely for existing. Use supported cycle breaking, retain semantic directions and enforce result postconditions.
 
-Cycles, self-loops and links between boundary nodes are not rejected merely for existing. Process them with the supported engine strategy, retain their actual directions and apply the same geometry postconditions. Return a diagnostic when a particular combination is infeasible.
-
-### Draft/review integration
-Bind Worker jobs and previews to session, canonical revisions, draft version and the exact boundary sets. Changing a role, retiring a marked node or rebasing while a job is running makes its result stale.
-
-Preview is temporary; Apply saves constrained geometry to the draft. Draft Undo/Redo and per-tab layout undo restore their exact prior states without silently reordering anything. Only final reviewed Submit publishes the complete flow metadata and geometry and completes one watcher. Marker changes alone do not auto-move nodes.
-
-### Local feasibility evidence
-Probed installed ELKjs 0.12.1 with two disconnected flows of different lengths plus an unmarked isolated node, in RIGHT and DOWN, using FIRST versus FIRST_SEPARATE and separateConnectedComponents true versus false.
-- Independent component packing produced misaligned starts or ends in these examples.
-- FIRST/LAST with joint processing aligned the boundaries but allowed the isolated node into the first layer.
-- FIRST_SEPARATE/LAST_SEPARATE with joint processing met all three conditions: aligned starts, aligned ends and strictly intermediate unmarked nodes in both directions.
-- Additional return-cycle and linked-start examples preserved their original edge endpoints while satisfying the marked layers.
-These are feasibility probes, not a universal guarantee; the implementation still needs the result validator and regression/live acceptance below.
+### Existing feasibility evidence and limits
+Earlier installed-ELKjs 0.12.1 probes covered one scope containing disconnected flows of different lengths and an isolated member in RIGHT/DOWN:
+- Separate component packing misaligned starts or ends.
+- Joint FIRST/LAST aligned boundaries but allowed an unmarked member into the first layer.
+- Joint FIRST_SEPARATE/LAST_SEPARATE met the tested leading/trailing/intermediate postconditions.
+- Return-cycle and linked-start examples preserved original edge endpoints.
+Those probes do not validate the newly proposed multiple-scope storage/views. Implementation must add the scope-specific tests below.
 
 References:
 - https://eclipse.dev/elk/reference/options/org-eclipse-elk-layered-layering-layerConstraint.html
 - https://eclipse.dev/elk/reference/options/org-eclipse-elk-separateConnectedComponents.html
 - https://eclipse.dev/elk/blog/posts/2023/23-01-09-constraining-the-model.html
 
-## Implementation sequence
-1. Extend schemas, additive DB migration, canonical commits/history and immutable graph snapshots. Preserve omission versus explicit clearing and metadata-only commits.
-2. Add draft flow operations, retirement normalization, net diff, conflict rebase and review/submission support.
-3. Add agent guidance, canvas/inspector/minimap/feedback rendering and real Worker layout constraints. Keep all node kinds and English defaults.
-4. Execute TDD and actual browser validation below, then update public documentation and create an English showcase screenshot only from real persisted metadata.
-
-## TDD and live acceptance
-- Observe rejection/absence of explicit flow metadata against the current contract before implementation.
-- Cover create/update/clear/omit preservation, metadata-only revisions/history/replay, missing/retired/duplicate IDs, cross-session isolation and atomic rollback.
-- Cover RIGHT/DOWN with multiple starts/ends, disconnected flows of different lengths and unmarked isolated nodes. Assert global leading/trailing boundary bands and strictly intermediate unmarked rectangles, not just non-overlap or array order.
-- Cover the valid single-node dual-role case and explicit rejection/preservation for a dual-role node with other active nodes.
-- Cover cycles, self-loops and linked boundary nodes using real ELK output, preserving original edge endpoints/directions. Verify infeasible or contract-violating output never reaches Apply and never replaces old positions/routes.
-- Permute input node order to prove placement comes from explicit roles rather than creation order. Changing roles during calculation/review must invalidate stale results and review tokens.
-- Cover draft-only marking, removal of new marked nodes, durable undo/redo/reopen, stale review rejection, marker retirement diffs, concurrent rebase and exactly one final submission notification.
-- Browser proof: agent-created markers render after reload; human role changes appear in review before Submit but not canonical data; badges, accessible labels, minimap and submitted SVG agree.
-- Verify English chrome with multilingual user labels, medium/narrow viewports, selection/focus, existing pan/zoom, manual positions and native Worker cleanup.
-- Do not claim automatic reasoning, execution or terminal completion merely because a node has an END badge.
+## Implementation and acceptance
+1. Define schemas and additive storage for named flow membership/roles and scoped geometry. Keep turn provenance separate and preserve omitted definitions on commits.
+2. Integrate agent updates, human draft authoring, retirement cleanup, undo/rebase and immutable review/submission captures.
+3. Render qualified scope badges/inspector/selector/minimap/SVG and pass only the selected scope's constraints to the actual Worker.
+4. TDD: graph/turn/custom scopes; shared nodes with different roles; multiple starts/ends; one turn refined by several commits; no inference from revision; node/edge membership validation; atomic failures and replay.
+5. Real geometry: both directions, unequal disconnected paths, isolated members, cycles, linked boundaries, one-member dual-role scopes and explicit infeasibility. Permute node order and preserve real edge directions.
+6. View isolation: arranging Turn 2 cannot overwrite Whole graph or Turn 1 positions. A new scope must not steal a reused node from another view.
+7. Browser proof: switch scopes and see the correct role on the same node; edit a role in a draft, review its qualified diff, submit once, reload and inspect matching badges/geometry in canvas and feedback image.
+8. Cover multilingual content, English UI, narrow screens, stale Worker/review rejection, concurrent rebase and safe drawing-frame handling across scope changes. State unverified limits honestly.
