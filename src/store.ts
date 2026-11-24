@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { commitSchema, layoutSchema, openSchema, draftOperationSchema, draftIdSchema, draftVersionSchema, draftRebaseSchema, type Graph, type GraphNode, type GraphEdge, type CommitResult, type Feedback, type LayoutChange, type DraftView, type GraphView } from './schema.ts';
+import { commitSchema, layoutSchema, openSchema, draftChangeSchema, draftIdSchema, draftVersionSchema, draftRebaseSchema, type Graph, type GraphNode, type GraphEdge, type CommitResult, type Feedback, type LayoutChange, type DraftView, type GraphView, type DraftOperation } from './schema.ts';
 import { graphView, stable, validateWork, applyOperation, diff, mergeGraph, type DraftWork } from './review.ts';
 import { flowView, annotationFrame, validateFlows, validateGeometry, invalidateFlowRoutes, pruneFlowLayouts } from './flows.ts';
 
@@ -23,7 +23,7 @@ function distinct(ids: string[], name: string) {
   if (new Set(ids).size !== ids.length) throw new GraphError('INVALID_GRAPH', `Duplicate ${name} ID`);
 }
 type GraphRow = { graph_id: string; session_id: string; title: string; revision: number; snapshot: string; positions: string; layout_revision: number; routes: string; layout_direction: 'RIGHT' | 'DOWN' | null; flows: string; flow_layouts: string };
-type DraftRecord = { id: string; sessionId: string; version: number; state: DraftView['state']; base: GraphView; work: DraftWork; checkpoint: number; submittedVersion?: number; token?: string; feedbackId?: string; submittedFeedback?: Feedback };
+type DraftRecord = { id: string; sessionId: string; version: number; state: DraftView['state']; base: GraphView; work: DraftWork; checkpoint: number; editGroup?: { id: string; target: string; checkpoint: number }; submittedVersion?: number; token?: string; feedbackId?: string; submittedFeedback?: Feedback };
 function restoreFeedback(item: Feedback): Feedback {
   item.captureFlowId ??= null;
   for (const graph of [item.capture, item.review?.before, item.review?.after]) if (graph) { graph.flows ??= []; graph.flowLayouts ??= {}; }
@@ -293,16 +293,28 @@ export class GraphStore {
     draftIdSchema.parse({ draftId });
     return this.draftView(this.draftRecord(sessionId, draftId));
   }
-  draftChange(sessionId: string, input: { draftId: string; baseDraftVersion: number; operation: unknown }): DraftView {
-    draftVersionSchema.parse({ draftId: input.draftId, baseDraftVersion: input.baseDraftVersion });
-    const operation = draftOperationSchema.parse(input.operation);
+  draftChange(sessionId: string, input: { draftId: string; baseDraftVersion: number; operation: unknown; editGroup?: string }): DraftView {
+    const parsed = draftChangeSchema.parse(input), operation = parsed.operation;
     return this.transaction(() => {
-      const draft = this.draftRecord(sessionId, input.draftId);
-      this.checkDraft(draft, input.baseDraftVersion);
+      const draft = this.draftRecord(sessionId, parsed.draftId);
+      this.checkDraft(draft, parsed.baseDraftVersion);
+      const target = parsed.editGroup ? this.editTarget(draft.work, operation) : null;
+      const coalesce = parsed.editGroup && target && draft.editGroup?.id === parsed.editGroup && draft.editGroup.target === target && draft.editGroup.checkpoint === draft.checkpoint;
       draft.work = applyOperation(draft.work, draft.base, operation);
-      this.checkpointDraft(draft);
+      draft.editGroup = parsed.editGroup && target ? { id: parsed.editGroup, target, checkpoint: draft.checkpoint + (coalesce ? 0 : 1) } : undefined;
+      if (coalesce) {
+        draft.version++;
+        this.db.prepare('UPDATE draft_history SET payload=? WHERE draft_id=? AND checkpoint=?').run(JSON.stringify(draft.work), draft.id, draft.checkpoint);
+        this.saveDraft(draft);
+      } else this.checkpointDraft(draft);
       return this.draftView(draft);
     });
+  }
+  private editTarget(work: DraftWork, operation: DraftOperation): string | null {
+    if (operation.type === 'node' && !operation.position && operation.node.status !== 'retired' && work.graph.nodes.some(node => node.id === operation.node.id)) return `node:${operation.node.id}:${operation.flowId ?? ''}`;
+    if (operation.type === 'edge' && operation.edge.status === 'active' && work.graph.edges.some(edge => edge.id === operation.edge.id)) return `edge:${operation.edge.id}:${operation.flowId ?? ''}`;
+    if (operation.type === 'instruction' && stable(work.strokes) === stable(operation.strokes)) return `instruction:${operation.flowId ?? ''}:${stable(operation.nodeIds)}`;
+    return null;
   }
   draftStep(sessionId: string, input: { draftId: string; baseDraftVersion: number; direction: 'undo' | 'redo' }): DraftView {
     draftVersionSchema.parse({ draftId: input.draftId, baseDraftVersion: input.baseDraftVersion });
@@ -314,6 +326,7 @@ export class GraphStore {
       const row = this.db.prepare(query).get(draft.id, draft.checkpoint) as { checkpoint: number; payload: string } | undefined;
       if (!row) throw new GraphError('DRAFT_HISTORY_CONFLICT', `No ${input.direction} checkpoint remains; read draft_read`);
       draft.work = JSON.parse(row.payload); draft.checkpoint = row.checkpoint; draft.version++;
+      delete draft.editGroup;
       draft.work.graph.flows ??= []; draft.work.graph.flowLayouts ??= {}; draft.work.captureFlowId ??= null;
       if (draft.work.routeOrigin) { draft.work.routeOrigin.flows ??= []; draft.work.routeOrigin.flowLayouts ??= {}; }
       this.saveDraft(draft);
@@ -325,6 +338,7 @@ export class GraphStore {
     return this.transaction(() => {
       const draft = this.draftRecord(sessionId, input.draftId);
       this.checkDraft(draft, input.baseDraftVersion);
+      delete draft.editGroup;
       const latest = graphView(this.readSession(sessionId));
       if (latest.revision !== input.baseRevision || latest.layoutRevision !== input.baseLayoutRevision) throw new GraphError('DRAFT_BASE_CONFLICT', 'The inspected graph changed; graph_read again before rebasing', { currentRevision: latest.revision, currentLayoutRevision: latest.layoutRevision });
       const merged = mergeGraph(draft.base, draft.work.graph, latest, input.resolution);

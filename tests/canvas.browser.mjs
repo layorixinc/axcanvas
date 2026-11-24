@@ -11,12 +11,8 @@ export async function verifyCanvasSelection(page) {
   assert.equal(visible, true, 'A pointer click must open the node editor');
   assert.equal(await page.$eval('#node-id', e => e.textContent), id);
   const original = await page.$eval('#node-label', e => e.value);
-  await page.click('#node-label');
-  await page.keyboard.press('End');
-  await page.keyboard.type(' browser-unsaved-check');
   await page.click(`[data-node-id="${id}"]`);
-  assert.equal(await page.$eval('#node-label', e => e.value), `${original} browser-unsaved-check`, 'Selecting the same node must not discard unsaved input');
-  await page.click('#cancel');
-  await page.waitForFunction(expected => document.getElementById('node-label').value === expected, {}, original);
-  return { selection: 'pass', unsavedInput: 'pass', restored: original };
+  assert.equal(await page.$eval('#node-label', e => e.value), original, 'Selecting the same node must preserve its property value');
+  assert.equal(await page.$eval('#node-id', e => e.textContent), id);
+  return { selection: 'pass', restored: original };
 }

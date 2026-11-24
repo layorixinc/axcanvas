@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replace stacked editing panels with a compact two-row workspace, accessible SVG toolbox, contextual Inspector tabs/drawer and consolidated status.
+- Add direct node placement/connector gestures, selection marquee, scoped group moves, nudging, alignment/distribution and identity-safe Copy/Paste/Duplicate.
+- Add annotation-only stroke erasing, temporary Space Hand, contextual keyboard controls and input-local Undo/IME safeguards.
+- Add grouped existing-object property autosave and atomic draft batches. Preserve monotonic versions, failed-input retention, durable Undo/Redo and final reviewed publication.
+
 - Add graph, turn and custom flow memberships with multiple scoped START/END roles. Shared nodes keep one identity across flows.
 - Add scope selection, qualified canvas/minimap badges, role and membership editors, and independently persisted turn/custom layouts.
 - Enforce selected-flow boundary bands in native Worker layout; reject infeasible or invalid geometry without replacing the previous view.

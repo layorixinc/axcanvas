@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { openMenu } from './workspace-helpers.mjs';
 
 // View-only regression on a real graph. No graph/layout writes are allowed.
 export async function verifyMinimap(page) {
@@ -38,7 +39,7 @@ export async function verifyMinimap(page) {
     await page.focus('#minimap-toggle'); await page.keyboard.press('Tab'); await page.keyboard.press('ArrowRight'); const keyed = await state(); assert.ok(keyed.camera.x > panned.camera.x); await page.keyboard.press('Home'); cases.push('keyboard-navigation');
     await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap',e=>e.hasAttribute('hidden')),true);
     await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap',e=>e.hasAttribute('hidden')),false); cases.push('collapse-expand');
-    await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]',{timeout:10000});
+    await openMenu(page, 'arrange'); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]',{timeout:10000});
     const matching = await page.evaluate(() => {
       const node=document.querySelector('.graph-node'), id=node.getAttribute('data-node-id');
       const mini=[...document.querySelectorAll('#minimap-nodes rect')].find(e=>e.getAttribute('data-minimap-node')===id);

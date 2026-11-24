@@ -1,6 +1,6 @@
 # Compact, Office-style canvas workspace
 
-Status: design only. This document proposes a UI and editing redesign; it does not change the running application. Product-owned text remains English. User graph content and feedback are never translated.
+Status: implemented. The product-owned interface remains English; user graph content and feedback are never translated. This document records the approved workspace layout, editing contracts and acceptance criteria.
 
 ## Evidence and problem
 
@@ -129,4 +129,13 @@ Do not silently bundle tables, text documents, arbitrary Office file formats, re
 - Review contains every staged edit, final Submit emits one watcher packet, and receipt remains distinct from processing. Existing API/replay/migration/conflict tests continue to pass.
 - Inspect actual screenshots at each supported width, keyboard-only traversal and touch-sized targets. Test the native Worker, minimap, Inspector/drawer and dialog focus on the real page, not DOM/source-text substitutes.
 
-No runtime tests were rerun for this planning-only document. Implementation must establish failing regressions for new interactions, then run the focused automated and actual-browser acceptance scenarios above.
+Implementation regressions live in `tests/edit-groups.test.ts` and `tests/workspace.browser.mjs`, alongside the existing API, flow, review and browser suites. Native input undo, IME, scoped geometry, real pointer gestures and final publication are verified through actual consumer interactions rather than hidden duplicate controls or application-state scripts.
+
+## Observed verification — 2026-11-24
+
+- `npm run check` passed: 62 API/storage/layout/notification tests, TypeScript and public JavaScript syntax checks.
+- `npm run test:browser` passed the 12 compact-workspace scenarios: layout/Inspector, placement and contextual type, direct/drag/self/parallel connectors, grouped autosave and invalid-input recovery, native Korean IME and input-local Undo, marquee, scoped group movement/nudging/alignment/distribution, new-identity clipboard operations, stroke-only erasing, temporary Hand, one final review/notification, and responsive layouts.
+- At 1365 × 768, the real canvas measured 648px high, compared with the earlier 300px. The application had no document-level overflow. Actual browser coverage also exercised 1600 × 1050, 800px and 390px widths.
+- Existing English/multilingual, scoped roles/captures, reviewed authoring/rebase, native Worker preview/undo/conflicts, Ctrl-focus, middle-pan, fit and minimap scenarios passed after migrating interactions to visible menus and the new autosave contract.
+- A separately deployed live session performed real pointer placement, connection, grouped property autosave, scoped group movement, drawing and reviewed submission. Canonical content remained unchanged until Submit and original global geometry was preserved. The actual common watcher completed once; the agent read the packet/canonical graph and acknowledged Applied. The live database and WAL/SHM were backed up before cutover.
+- Windows, Node.js 24.16 and Chrome were exercised. No extra paid model session, live Claude Code client or GitHub CI run is claimed.

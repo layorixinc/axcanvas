@@ -94,7 +94,7 @@ export const reviewSchema = z.object({
   changes: z.array(changeSchema), before: graphViewSchema, after: graphViewSchema
 }).strict();
 export type Review = z.infer<typeof reviewSchema>;
-export const draftOperationSchema = z.discriminatedUnion('type', [
+export const draftLeafOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('node'), node: nodeSchema, position: positionSchema.optional(), flowId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal('edge'), edge: edgeSchema, flowId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal('flow'), flow: flowSchema }).strict(),
@@ -105,9 +105,15 @@ export const draftOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('layout'), positions: z.record(id, positionSchema), routes: z.record(id, routeSchema), direction: z.enum(['RIGHT', 'DOWN']).nullable(), flowId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal('instruction'), note: z.string().max(10000), strokes: z.array(strokeSchema).max(100), nodeIds: z.array(id).max(300), flowId: id.nullable().optional() }).strict()
 ]);
+export type DraftLeafOperation = z.infer<typeof draftLeafOperationSchema>;
+export const draftOperationSchema = z.union([
+  draftLeafOperationSchema,
+  z.object({ type: z.literal('batch'), operations: z.array(draftLeafOperationSchema).min(1).max(300) }).strict()
+]);
 export type DraftOperation = z.infer<typeof draftOperationSchema>;
 export const draftIdSchema = z.object({ draftId: id }).strict();
 export const draftVersionSchema = draftIdSchema.extend({ baseDraftVersion: z.number().int().nonnegative() }).strict();
+export const draftChangeSchema = draftVersionSchema.extend({ operation: draftOperationSchema, editGroup: z.string().min(1).max(128).optional() }).strict();
 export const draftRebaseSchema = draftVersionSchema.extend({
   baseRevision: z.number().int().nonnegative(), baseLayoutRevision: z.number().int().nonnegative(),
   resolution: z.enum(['fail', 'draft', 'latest'])

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { openMenu, showPanel, draftResponse, result, idle } from './workspace-helpers.mjs';
 
 // Actual browser chrome under a Korean locale, with intentionally multilingual user data.
 export async function verifyEnglishDefaults(page, baseUrl) {
@@ -39,19 +40,20 @@ export async function verifyEnglishDefaults(page, baseUrl) {
     assert.ok((await page.$eval('#feedback-target', e => e.textContent)).startsWith(`Selected: ${label}`));
     assert.deepEqual((await page.$$eval('#feedback-list strong', all => all.map(e => e.textContent.split(' · ')[0]))).sort(), ['Pending', 'Applied', 'Needs clarification', 'Rejected'].sort());
     assert.equal(await page.$$eval('#feedback-list p', all => all.filter(e => e.textContent === '그림에 대한 사용자 메모 — 注記').length), 4);
-    await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap-toggle', e => e.textContent), 'Expand');
-    await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap-toggle', e => e.textContent), 'Collapse');
-    await page.click('#history-toggle'); await page.waitForSelector('#history li');
+    await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap-toggle', e => e.getAttribute('aria-expanded')), 'false');
+    await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap-toggle', e => e.getAttribute('aria-expanded')), 'true');
+    await showPanel(page, 'history'); await page.click('#history-toggle'); await page.waitForSelector('#history li');
     const history = await page.$eval('#history', e => e.textContent);
     assert.match(history, /\d{1,2}:\d{2}:\d{2}\s(?:AM|PM)/, 'History must use English time formatting even under a Korean locale');
     assert.doesNotMatch(history, /[가-힣]/);
+    await showPanel(page); await page.click('[data-node-id="one"]');
+    const saved = draftResponse(page, args => args.operation.type === 'node' && args.operation.node.label === `${label} 수정`);
     await page.click('#node-label'); await page.keyboard.press('End'); await page.keyboard.type(' 수정');
-    await page.click('[data-node-id="two"]');
-    assert.equal(await page.$eval('#node-id', e => e.textContent), 'one');
-    assert.equal(await page.$eval('#node-label', e => e.value), `${label} 수정`);
-    await page.click('#cancel'); await page.waitForFunction(text => document.getElementById('node-label').value === text, {}, label);
-    await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
-    assert.match(await page.$eval('#layout-status', e => e.textContent), /Preview/);
+    await result(await saved); await idle(page);
+    await page.click('[data-node-id="two"]'); assert.equal(await page.$eval('#node-id', e => e.textContent), 'two');
+    await page.click('[data-node-id="one"]'); assert.equal(await page.$eval('#node-label', e => e.value), `${label} 수정`);
+    await page.click('#draft-undo'); await page.waitForFunction(text => document.getElementById('node-label').value === text, {}, label);
+    await openMenu(page, 'arrange'); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
     await page.click('#cancel-layout');
     const nonEnglishChrome = await page.evaluate(() => {
       const userContent = '#title, #sessions option:not([value=""]), #nodes .label, #nodes title, #edges .edge-label, #edges title, #sources, #node-relations, #feedback-list p, #feedback-target, #edge-picker option:not([value=""]), #edge-source option:not([value=""]), #edge-target option:not([value=""])';
@@ -69,7 +71,7 @@ export async function verifyEnglishDefaults(page, baseUrl) {
       await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
       assert.equal(await page.$eval('#minimap-toggle', e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.right <= innerWidth; }), true);
       const overlap = await page.evaluate(() => {
-        const map = document.getElementById('minimap-panel').getBoundingClientRect(), tools = document.querySelector('.canvas-tools').getBoundingClientRect();
+        const map = document.getElementById('minimap-panel').getBoundingClientRect(), tools = document.getElementById('toolbox').getBoundingClientRect();
         return map.left < tools.right && map.right > tools.left && map.top < tools.bottom && map.bottom > tools.top;
       });
       assert.equal(overlap, false, `Minimap must not cover canvas controls at ${width}px`);

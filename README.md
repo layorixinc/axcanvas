@@ -152,18 +152,23 @@ Existing databases default to no flows; historical memberships are never invente
 
 ## Canvas controls
 
-- **Add node** creates a node at an explicit or visible-center position without relocating existing nodes. Edit its type, label, details and status; **Save to draft** stages it.
-- **Connect nodes** creates a directed relationship. Choose or edit an existing relationship, reverse its direction, change its label, or retire it. Self-loops and parallel relations are supported.
-- **Retire node** preserves existing history and retires incident links. Removing an unsubmitted new node removes it from the final delta instead of publishing a phantom deletion.
-- Drag nodes to stage positions. Middle-drag pans, including over nodes and in drawing mode. Wheel zooms; **Fit graph** includes the complete graph.
-- **Auto layout** uses a native same-origin Worker. Preview/cancel writes nothing; Apply and Undo layout affect only the draft. Saved draft Undo/Redo is separate and survives reload.
-- **Focus connections** is off by default. Ctrl+node click focuses neighbors; ordinary selection clears focus. The minimap supports click/drag, arrow keys, Home and collapse.
-- Notes and **Draw** strokes are stored in the draft. Clear drawings before changing their coordinate frame; semantic-only rebases preserve them.
+- The compact document row holds **File**, the document title, durable Undo/Redo, the Inspector toggle and one **Review changes** command. **Scope** stays visible; **Arrange**, **View** and drawing options use menus rather than permanent explanatory panels.
+- The icon toolbox provides **Select (V)**, **Hand (H)**, **Add node (N)**, **Connect (C)**, **Draw (P)** and **Erase (E)**. Tooltips and accessible names identify every icon. Hold Space temporarily or middle-drag to pan; wheel zoom and status-bar Fit/zoom controls remain available.
+- **Add node**: activate the tool, click its canvas position, complete the Properties form and explicitly save. Existing nodes stay in place. **Connect**: choose source and target, or drag a connector handle; label and save the relationship. Escape cancels unfinished gestures. Self-links and parallel relations are supported.
+- Valid existing-object properties autosave to the durable draft. One continuous object edit is one Undo action; new objects still require explicit creation. Invalid input stays editable. Input fields retain native text Undo and IME behavior; Ctrl/Cmd+S saves to the draft, never to the agent.
+- Shift+click or drag a marquee for multiple selection. Drag the group, use arrows to nudge (Shift for larger steps), or use selection alignment/distribution commands. Copy/Paste/Duplicate assign new IDs, copy internal relationships and add only current-flow membership; boundary roles are not copied.
+- **Retire** preserves existing history and repairs incident relationships/memberships. **Erase drawing** removes annotation strokes only; it never deletes nodes or edges. Gestures and multi-object operations are undoable atomic draft edits.
+- **Arrange → Auto layout** uses a native same-origin Worker. Preview/cancel writes nothing; Apply and Undo layout affect only the selected draft view. Durable draft Undo/Redo is separate and survives reload.
+- Inspector tabs separate **Properties**, **Agent** instructions/submission history and graph **History**. On narrow screens the Inspector becomes a drawer. File/Connection details contain session IDs, setup and exact status instead of repeating them across the canvas.
+- **View → Focus connections** is off by default. Ctrl+node click focuses neighbors; ordinary selection clears focus. The minimap supports click/drag, arrow keys, Home and collapse.
+- Notes and drawings retain their captured scope. Clear or submit drawings before changing their coordinate frame; semantic-only rebases preserve them. Switching tools does not clear a drawing.
 - **Review changes** includes unsaved valid active forms rather than silently omitting them. Inspect before/after values, layout, notes, strokes and the final snapshot. Final **Submit to agent** is version-checked and replay-safe.
 - On a canonical conflict, the draft is retained. **Inspect latest / rebase** shows the latest data; merge nonconflicting changes or explicitly choose draft/latest for conflicts, then review again. Rebase resets old-base Undo history so undo cannot erase remote work.
 - Feedback remains pending after delivery. Agents use feedback_read and graph_commit.feedbackIds, or feedback_ack with an explanation, only after processing. Ambiguous drawings require clarification, not invented interpretation.
 
 Layout changes do not change semantic revisions. Semantic edits or manual node movement invalidate old routes while preserving node coordinates. Layout does not verify the truth of claims or sources, and answers are not automatically rearranged after every turn.
+
+See the [compact workspace design](docs/COMPACT-WORKSPACE.md) for interaction and accessibility contracts.
 
 ## Automatic notification without an agent-specific plugin
 

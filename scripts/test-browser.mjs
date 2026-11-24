@@ -13,6 +13,7 @@ import { verifyMinimap } from '../tests/minimap.browser.mjs';
 import { verifyEnglishDefaults } from '../tests/english.browser.mjs';
 import { verifyReviewedAuthoring } from '../tests/review.browser.mjs';
 import { verifyScopedFlows } from '../tests/flows.browser.mjs';
+import { verifyCompactWorkspace } from '../tests/workspace.browser.mjs';
 
 const dir = await mkdtemp(join(tmpdir(), 'axcanvas-browser-'));
 const resultsDir = resolve('test-results');
@@ -22,7 +23,10 @@ try {
   browser = await puppeteer.launch({ headless: true, args: process.env.AXCANVAS_BROWSER_NO_SANDBOX === '1' ? ['--no-sandbox'] : [] });
   page = await browser.newPage();
   const pageErrors = [];
-  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('pageerror', error => { pageErrors.push(error.message); console.error('BROWSER_ERROR', error.stack ?? error); });
+  const workspace = await verifyCompactWorkspace(page, app.url);
+  await mkdir(resultsDir, { recursive: true });
+  await page.screenshot({ path: join(resultsDir, 'compact-workspace.png'), fullPage: true });
   const english = await verifyEnglishDefaults(page, app.url);
   await mkdir(resultsDir, { recursive: true });
   await page.screenshot({ path: join(resultsDir, 'english-default.png'), fullPage: true });
@@ -42,8 +46,9 @@ try {
   assert.deepEqual(pageErrors, [], 'Browser must not emit uncaught JavaScript errors');
   await mkdir(resultsDir, { recursive: true });
   await page.screenshot({ path: join(resultsDir, 'browser.png'), fullPage: true });
-  console.log(JSON.stringify({ english, reviewed, flows, layout, selection, focus, pan, fit, minimap }, null, 2));
+  console.log(JSON.stringify({ workspace, english, reviewed, flows, layout, selection, focus, pan, fit, minimap }, null, 2));
 } catch (error) {
+  console.error(error.stack ?? error);
   if (page && !page.isClosed()) {
     await mkdir(resultsDir, { recursive: true });
     await page.screenshot({ path: join(resultsDir, 'browser-failure.png'), fullPage: true }).catch(() => {});

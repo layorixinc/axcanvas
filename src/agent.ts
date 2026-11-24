@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { GraphStore, GraphError } from './store.ts';
-import { nodeSchema, edgeSchema, positionSchema, routeSchema, layoutInputSchema, draftIdSchema, draftVersionSchema, draftRebaseSchema, draftOperationSchema, draftViewSchema, draftReviewSchema, reviewSchema, type Graph, type Feedback } from './schema.ts';
+import { nodeSchema, edgeSchema, positionSchema, routeSchema, layoutInputSchema, draftIdSchema, draftVersionSchema, draftRebaseSchema, draftChangeSchema, draftViewSchema, draftReviewSchema, reviewSchema, type Graph, type Feedback } from './schema.ts';
 import { flowSchema, viewLayoutSchema } from './schema.ts';
 
 export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/, 'Use 1-128 letters, digits, hyphens or underscores; a UUID is recommended');
@@ -69,7 +69,7 @@ export class AgentAPI {
       tool('graph_read', 'Read before answering or correcting. Reuse node IDs and preserve human edits. Never infer revision from an old conversation.', empty, graphSchema, true, (_args, ctx) => view(store.readSession(ctx.sessionId))),
       tool('draft_open', 'Create or restore a durable session-scoped human draft without changing the canonical graph.', draftIdSchema, draftViewSchema, false, (args, ctx) => store.draftOpen(ctx.sessionId, args.draftId)),
       tool('draft_read', 'Read a draft and its current version before reconciling concurrent edits.', draftIdSchema, draftViewSchema, true, (args, ctx) => store.draftRead(ctx.sessionId, args.draftId)),
-      tool('draft_change', 'Save one validated operation to the draft only. The exact draft version is required.', draftVersionSchema.extend({ operation: draftOperationSchema }).strict(), draftViewSchema, false, (args, ctx) => store.draftChange(ctx.sessionId, args)),
+      tool('draft_change', 'Save a validated draft operation or atomic batch. Optional editGroup coalesces consecutive same-object property edits, never publication. The exact draft version is required.', draftChangeSchema, draftViewSchema, false, (args, ctx) => store.draftChange(ctx.sessionId, args)),
       tool('draft_step', 'Undo or redo a durable draft checkpoint without touching canonical data.', draftVersionSchema.extend({ direction: z.enum(['undo', 'redo']) }).strict(), draftViewSchema, false, (args, ctx) => store.draftStep(ctx.sessionId, args)),
       tool('draft_rebase', 'Three-way merge against the inspected canonical revisions. fail reports paths without saving; draft/latest resolve conflicts only. Rebase resets undo history to preserve remote edits.', draftRebaseSchema, draftViewSchema, false, (args, ctx) => store.draftRebase(ctx.sessionId, args)),
       tool('draft_review', 'Read the complete net change and exact review token. Changed canonical bases and empty work cannot be submitted.', draftVersionSchema, draftReviewSchema, true, (args, ctx) => store.draftReview(ctx.sessionId, args)),

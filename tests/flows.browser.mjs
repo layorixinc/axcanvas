@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { beginNode, openMenu, showPanel } from './workspace-helpers.mjs';
 
 export async function verifyScopedFlows(page, baseUrl) {
   const sessionId = `flows-ui-${randomUUID()}`, cases = [];
@@ -15,7 +16,7 @@ export async function verifyScopedFlows(page, baseUrl) {
   async function fill(selector, value) { await page.click(selector, { clickCount: 3 }); await page.type(selector, value); }
   async function scope(id) { await page.select('#flow-selector', id); await page.waitForFunction(id => document.getElementById('flow-selector').value === id, {}, id); await page.click('#fit'); }
   async function layout(direction) {
-    await page.select('#layout-direction', direction); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
+    await openMenu(page, 'arrange'); await page.select('#layout-direction', direction); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
     const draft = await action('#apply-layout'); await page.waitForSelector('#layout-status[data-state="idle"]'); await page.click('#fit'); return draft;
   }
   const node = id => ({ id, kind: 'concept', label: ({ a: 'Question — 질문', b: 'Shared result', c: 'Conclusion C', d: 'Conclusion D' })[id], detail: 'One semantic identity reused across flows.', status: 'confirmed', sources: [] });
@@ -47,10 +48,10 @@ export async function verifyScopedFlows(page, baseUrl) {
   assert.equal(await page.$eval('#node-flow-start', e => e.checked), false);
   draft = await action('#draft-undo', 'draft_step'); assert.deepEqual(draft.graph.flows.find(f => f.id === 'turn-2').startNodeIds, ['b']); cases.push('role-draft-save-reload-and-durable-undo');
 
-  await page.click('#add-flow'); await page.waitForSelector('#flow-editor[open]'); await fill('#flow-label', 'Review slice'); await page.select('#flow-scope', 'custom');
+  await openMenu(page, 'scope-menu'); await page.click('#add-flow'); await page.waitForSelector('#flow-editor[open]'); await fill('#flow-label', 'Review slice'); await page.select('#flow-scope', 'custom');
   await page.select('#flow-nodes', 'b', 'c'); await page.select('#flow-edges', 'bc'); await page.select('#flow-starts', 'b'); await page.select('#flow-ends', 'c');
   draft = await action('#flow-save'); const custom = draft.graph.flows.find(f => f.label === 'Review slice'); assert.ok(custom); assert.deepEqual([...custom.nodeIds].sort(), ['b','c']);
-  await scope(custom.id); await page.click('#add-node'); await fill('#node-label', 'Temporary scoped node'); draft = await action('#save');
+  await scope(custom.id); await beginNode(page); await fill('#node-label', 'Temporary scoped node'); draft = await action('#save');
   const temporary = draft.graph.nodes.find(n => n.label === 'Temporary scoped node'); assert.ok(temporary); assert.ok(draft.graph.flows.find(f => f.id === custom.id).nodeIds.includes(temporary.id));
   assert.equal(draft.graph.positions[temporary.id], undefined); assert.ok(draft.graph.flowLayouts[custom.id].positions[temporary.id]);
   draft = await action('#retire-node'); assert.equal(draft.graph.nodes.some(n => n.id === temporary.id), false); assert.equal(draft.graph.flows.find(f => f.id === custom.id).nodeIds.includes(temporary.id), false);
@@ -62,6 +63,7 @@ export async function verifyScopedFlows(page, baseUrl) {
   await page.mouse.move(point.x, point.y); await page.mouse.down(); await page.mouse.move(point.x + 25, point.y + 20, { steps: 5 }); await page.mouse.up();
   await page.waitForFunction(() => !document.getElementById('feedback-note').disabled);
   await page.select('#flow-selector', 'turn-1'); assert.equal(await page.$eval('#flow-selector', e => e.value), 'turn-2', 'Captured drawing must block a scope switch');
+  await showPanel(page, 'agent');
   const note = 'Review the shared result in Turn 2, not Turn 1.';
   const noteSaved = page.waitForResponse(r => {
     if (!r.url().endsWith('/api/agent/v1') || r.request().method() !== 'POST') return false;

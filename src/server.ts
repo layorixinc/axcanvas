@@ -13,6 +13,7 @@ const assets: Record<string, [string, string]> = {
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/layout.js': ['layout.js', 'text/javascript; charset=utf-8'],
   '/flows.js': ['flows.js', 'text/javascript; charset=utf-8'],
+  '/workspace.js': ['workspace.js', 'text/javascript; charset=utf-8'],
   '/vendor/elk-api.js': ['../node_modules/elkjs/lib/elk-api.js', 'text/javascript; charset=utf-8'],
   '/vendor/elk-worker.js': ['../node_modules/elkjs/lib/elk-worker.min.js', 'text/javascript; charset=utf-8'],
   '/third-party-notices.txt': ['../THIRD-PARTY-NOTICES.txt', 'text/plain; charset=utf-8'],

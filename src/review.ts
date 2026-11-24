@@ -1,5 +1,5 @@
 import { GraphError } from './store.ts';
-import { graphViewSchema, type Graph, type GraphView, type DraftOperation, type ReviewChange, type Stroke } from './schema.ts';
+import { graphViewSchema, type Graph, type GraphView, type DraftOperation, type DraftLeafOperation, type ReviewChange, type Stroke } from './schema.ts';
 import { flowView, annotationFrame, validateFlows, validateGeometry, invalidateFlowRoutes, pruneFlowLayouts } from './flows.ts';
 
 export type DraftWork = { graph: GraphView; note: string; strokes: Stroke[]; nodeIds: string[]; captureFlowId?: string | null; routeOrigin?: GraphView };
@@ -33,8 +33,15 @@ export function validateWork(work: DraftWork) {
   for (const id of work.nodeIds) if (!nodes.has(id)) throw new GraphError('INVALID_GRAPH', `Unknown feedback node: ${id}`);
 }
 export function applyOperation(work: DraftWork, base: GraphView, operation: DraftOperation): DraftWork {
+  const next = structuredClone(work);
+  if (operation.type === 'batch') for (const leaf of operation.operations) applyLeaf(next, base, leaf);
+  else applyLeaf(next, base, operation);
+  validateWork(next);
+  return next;
+}
+function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperation): DraftWork {
   const captured = work.strokes.length ? annotationFrame(work.graph, work.captureFlowId ?? null) : null;
-  const next = structuredClone(work), g = next.graph;
+  const next = work, g = next.graph;
   const scope = 'flowId' in operation && operation.type !== 'retire_flow' ? flowView(g, operation.flowId ?? null) : null;
   const scoped = scope?.flowId ? scope.flow! : null;
   const geometry = () => {
@@ -135,7 +142,6 @@ export function applyOperation(work: DraftWork, base: GraphView, operation: Draf
     const semantics = (view: GraphView) => ({ nodes: Object.fromEntries(view.nodes.map(item => [item.id, item])), edges: Object.fromEntries(view.edges.map(item => [item.id, item])), flows: Object.fromEntries(view.flows.map(item => [item.id, item])), positions: view.positions, layouts: Object.fromEntries(Object.entries(view.flowLayouts).map(([id, layout]) => [id, { ...layout, routes: {} }])) });
     if (same(semantics(g), semantics(origin))) { g.routes = origin.routes; g.flowLayouts = origin.flowLayouts; delete next.routeOrigin; }
   }
-  validateWork(next);
   return next;
 }
 export function diff(base: GraphView, work: DraftWork): ReviewChange[] {

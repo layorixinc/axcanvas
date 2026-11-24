@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { openMenu } from './workspace-helpers.mjs';
 
 // Native Worker geometry remains draft-local until the separate reviewed submission.
 export async function verifyLayoutWorkflow(page, baseUrl) {
@@ -17,7 +18,7 @@ export async function verifyLayoutWorkflow(page, baseUrl) {
   const onWorker = worker => workerUrls.push(worker.url()); page.on('workercreated', onWorker);
   const ready = () => page.waitForFunction(() => !document.getElementById('send-feedback').disabled);
   async function preview(direction) {
-    await ready(); await page.select('#layout-direction', direction); await page.click('#auto-layout');
+    await ready(); await openMenu(page, 'arrange'); await page.select('#layout-direction', direction); await page.click('#auto-layout');
     await page.waitForSelector('#layout-status[data-state="preview"]', { timeout: 10000 });
     assert.equal(await page.$$eval('.graph-edge.routed', all => all.length), 6);
   }
@@ -27,14 +28,11 @@ export async function verifyLayoutWorkflow(page, baseUrl) {
   async function discard() {
     page.once('dialog', dialog => dialog.accept());
     const opened = page.waitForResponse(r => r.url().endsWith('/api/agent/v1') && r.request().method() === 'POST' && JSON.parse(r.request().postData()).tool === 'draft_open');
-    await page.click('#discard-draft'); await opened; await ready();
+    await openMenu(page, 'file'); await page.click('#discard-draft'); await opened; await ready();
   }
   try {
     await page.setViewport({ width: 1440, height: 960, deviceScaleFactor: 1 });
     await page.goto(`${baseUrl}/#${sessionId}`); await page.waitForSelector('.graph-node');
-    await page.click('[data-node-id="a"]'); await page.type('#node-label', ' unsaved');
-    assert.equal(await page.$eval('#auto-layout', e => e.disabled), true);
-    await page.click('#cancel'); cases.push('dirty-form-blocking');
     await preview('RIGHT'); assert.deepEqual(await call('graph_read'), original);
     assert.equal(await page.$eval('#pen', e => e.disabled), true);
     await page.click('#cancel-layout'); await page.waitForSelector('#layout-status[data-state="idle"]');
@@ -45,7 +43,7 @@ export async function verifyLayoutWorkflow(page, baseUrl) {
     await page.reload(); await page.waitForSelector('.graph-edge.routed');
     assert.equal(await page.$eval('#undo-layout', e => e.disabled), true);
     assert.deepEqual((await readDraft()).graph, down); cases.push('durable-draft-layout');
-    await preview('RIGHT'); await apply(); await page.click('#undo-layout'); await ready();
+    await preview('RIGHT'); await apply(); await openMenu(page, 'arrange'); await page.click('#undo-layout'); await ready();
     const undone = (await readDraft()).graph;
     assert.deepEqual(undone.positions, down.positions); assert.deepEqual(undone.routes, down.routes); assert.equal(undone.layoutDirection, 'DOWN'); cases.push('exact-layout-undo');
     await page.keyboard.down('Control'); try { await page.click('[data-node-id="b"]'); } finally { await page.keyboard.up('Control'); }

@@ -1,6 +1,7 @@
 import '/vendor/elk-api.js';
 import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 import { flowView, boundaryRoles } from '/flows.js';
+import { initWorkspace } from '/workspace.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -14,6 +15,46 @@ let draft = null, mutationTail = Promise.resolve(), pending = 0, review = null, 
 let newNode = false, edgeEditing = null, edgeDirty = false, instructionDirty = false, instructionTimer;
 let draftConflict = false, reviewBusy = false;
 let activeFlowId = null, captureFlowId = null, flowEditing = null, flowDirty = false, nodeFormFlowId = null, edgeFormFlowId = null;
+let tool = 'select', spaceTool = null, selection = new Set(), clipboard = null, connector = null, gesture = null;
+let placementKind = 'concept';
+let workspace, saveError = '', deliveryState = '', composing = false, propertyTimer, editSession = null, propertySave = Promise.resolve();
+const toolHints = { select: 'Select · Shift-click or drag to select several nodes', hand: 'Hand · Drag to pan', node: 'Add node · Click to place, then save', connect: 'Connect · Choose source and target, or drag a handle', draw: 'Draw · Annotate this scope', erase: 'Erase · Drag across whole annotation strokes' };
+function refreshWorkspace() {
+  workspace?.refresh({ selectionCount: selection.size, hasSelection: selection.size > 0, toolHint: toolHints[tool],
+    saveState: pending ? 'Saving…' : saveError ? 'Save failed' : hasUnsaved() ? 'Unsaved input' : draft ? 'Saved to draft' : 'No draft',
+    saveError, connectionState: `${$('connection').textContent} · ${$('watcher-status').textContent}${deliveryState ? ` · ${deliveryState}` : ''}`,
+    zoomPercent: Math.round(1500 / camera.w * 100), conflict: draftConflict });
+}
+function closeEditSession() { clearTimeout(propertyTimer); editSession = null; }
+function editGroup(target) { if (editSession?.target !== target) editSession = { target, id: newId() }; return editSession.id; }
+function formSnapshot(kind) {
+  return JSON.stringify((kind === 'node' ? ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y'] : ['edge-source', 'edge-target', 'edge-relation']).map(id => $(id).value));
+}
+function saveFailure(error) { saveError = error.message; notice(`${error.message} Your input is preserved; save or discard it before continuing.`); refreshWorkspace(); }
+function scheduleProperties() {
+  clearTimeout(propertyTimer); saveError = ''; refreshWorkspace();
+  if (!composing) propertyTimer = setTimeout(() => persistProperties().catch(saveFailure), 600);
+}
+function persistProperties() {
+  clearTimeout(propertyTimer);
+  propertySave = propertySave.catch(() => {}).then(async () => {
+    if (composing) return;
+    if (dirty && !newNode) await saveNode(false);
+    if (edgeDirty && graph?.edges.some(e => e.id === edgeEditing?.id)) await saveEdge(false);
+  });
+  return propertySave;
+}
+async function prepareSwitch() {
+  if (composing) throw new Error('Finish composing text before continuing.');
+  await persistProperties(); await mutationTail;
+  if (instructionDirty) await saveInstructions();
+  if (hasUnsaved()) throw new Error('Save or discard the active new object or flow form before continuing.');
+  closeEditSession();
+}
+async function setTool(next) {
+  try { await prepareSwitch(); if (layoutLocked() || reviewBusy) return; connector = null; tool = next; penMode = next === 'draw'; workspace.setTool(next); $('canvas').classList.toggle('drawing', penMode); draw(); refreshWorkspace(); }
+  catch (error) { workspace.setTool(tool); saveFailure(error); }
+}
 function currentView() { return flowView(graph, activeFlowId); }
 function roleText(role) { return role.start && role.end ? 'START + END' : role.start ? 'START' : 'END'; }
 function qualifiedRoles(source, nodeId) { return boundaryRoles(source, nodeId).map(role => `${role.label} · ${roleText(role)}`).join('; '); }
@@ -71,9 +112,11 @@ function openFlow(create) {
   flowDirty = true; updateFlowFields(); $('flow-editor').showModal(); layoutControls();
 }
 function closeFlow() { flowDirty = false; flowEditing = null; $('flow-editor').close(); layoutControls(); }
-$('flow-selector').onchange = () => {
-  if (hasUnsaved() || strokes.length || dragging || pending || reviewBusy || layoutLocked()) { $('flow-selector').value = activeFlowId ?? ''; notice('Save or discard active forms and clear or submit the captured drawing before changing scope.'); return; }
-  activeFlowId = $('flow-selector').value || null; layoutUndo = null; review = null;
+$('flow-selector').onchange = async () => {
+  const next = $('flow-selector').value || null; $('flow-selector').value = activeFlowId ?? '';
+  try { await prepareSwitch(); } catch (error) { saveFailure(error); return; }
+  if (strokes.length || dragging || reviewBusy || layoutLocked()) { notice('Clear or submit the captured drawing before changing scope.'); return; }
+  selection.clear(); activeFlowId = next; layoutUndo = null; review = null;
   edgeEditing = null; $('edge-editor').hidden = true;
   renderFlowSelector(); renderEdgePicker(); select(currentView().nodes.some(node => node.id === selected?.id) ? selected.id : null, true);
   if (currentView().layoutDirection) $('layout-direction').value = currentView().layoutDirection;
@@ -162,7 +205,7 @@ function activeNodes() { return graph ? activeFlowId ? currentView().nodes : gra
 function visibleEdges() { return !activeFlowId && $('show-retired').checked ? graph.edges : currentView().edges; }
 function displayedLayout() { return layoutPreview?.layout ?? currentView(); }
 function point(node) {
-  if (dragging?.id === node.id) return dragging.position;
+  if (dragging?.positions?.[node.id]) return dragging.positions[node.id];
   const i = currentView().nodes.findIndex(n => n.id === node.id);
   return displayedLayout().positions[node.id] ?? { x: 90 + (i % 3) * 440, y: 100 + Math.floor(i / 3) * 235 };
 }
@@ -178,7 +221,7 @@ function geometryBounds(nodes = activeNodes()) {
   }
   return { minX, minY, maxX, maxY };
 }
-function view() { $('canvas').setAttribute('viewBox', `${camera.x} ${camera.y} ${camera.w} ${camera.h}`); updateMinimapView(); }
+function view() { $('canvas').setAttribute('viewBox', `${camera.x} ${camera.y} ${camera.w} ${camera.h}`); updateMinimapView(); refreshWorkspace(); }
 function fit() {
   const bounds = geometryBounds(); if (!bounds) return;
   const { minX, minY, maxX, maxY } = bounds;
@@ -254,6 +297,7 @@ $('minimap-toggle').onclick = () => {
   $('minimap-toggle').setAttribute('aria-expanded', String(!collapsed));
   $('minimap-toggle').textContent = collapsed ? 'Expand' : 'Collapse';
 };
+if (matchMedia('(max-width: 850px)').matches) { $('minimap').setAttribute('hidden', ''); $('minimap-toggle').setAttribute('aria-expanded', 'false'); $('minimap-toggle').textContent = 'Expand'; }
 new ResizeObserver(updateMinimapView).observe($('canvas'));
 function wrap(text, max = 21) {
   const lines = []; let rest = text;
@@ -293,7 +337,7 @@ function drawEdges() {
     }
     group.append(label); $('edges').append(group);
     group.setAttribute('tabindex', '0'); group.setAttribute('role', 'button'); group.setAttribute('aria-label', `Edit relationship: ${edge.relation}`);
-    group.addEventListener('click', () => openEdge(edge.id));
+    group.addEventListener('click', () => { if (tool === 'select' && !spaceTool) prepareSwitch().then(() => openEdge(edge.id)).catch(saveFailure); });
     group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdge(edge.id); } });
   }
 }
@@ -302,34 +346,36 @@ function draw() {
   $('nodes').replaceChildren(); drawEdges();
   const nodes = activeNodes(), adjacent = neighbors();
   for (const n of nodes) {
-    const p = point(n), group = svg('g', { transform: `translate(${p.x},${p.y})`, class: `graph-node ${selected?.id === n.id ? 'selected' : ''} ${changed.has(n.id) ? 'changed' : ''} ${n.status === 'retired' ? 'retired' : ''} ${selected && $('focus-relations').checked && !adjacent.has(n.id) ? 'dimmed' : ''}`, 'data-node-id': n.id, tabindex: 0, role: 'button', 'aria-label': `${names[n.kind]}: ${n.label}` });
+    const p = point(n), group = svg('g', { transform: `translate(${p.x},${p.y})`, class: `graph-node ${selection.has(n.id) ? 'selected' : ''} ${connector?.source === n.id ? 'connect-source' : ''} ${changed.has(n.id) ? 'changed' : ''} ${n.status === 'retired' ? 'retired' : ''} ${selected && $('focus-relations').checked && !adjacent.has(n.id) ? 'dimmed' : ''}`, 'data-node-id': n.id, tabindex: 0, role: 'button', 'aria-label': `${names[n.kind]}: ${n.label}` });
     group.append(svg('title', {}, n.label), svg('rect', { class: 'body', width: 340, height: 150 }), svg('line', { x1: 0, y1: 25, x2: 0, y2: 125, class: 'accent-line', stroke: colors[n.kind] }));
     group.append(svg('text', { x: 20, y: 27, class: 'kind', fill: colors[n.kind] }, names[n.kind].toUpperCase()));
     appendBadges(group, graph, n.id, activeFlowId);
     group.setAttribute('aria-label', `${names[n.kind]}: ${n.label}${qualifiedRoles(graph, n.id) ? `; ${qualifiedRoles(graph, n.id)}` : ''}`);
     wrap(n.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
     group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
-    group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(n.id, false, e.ctrlKey); } });
-    group.addEventListener('pointerdown', e => {
-      if (penMode) return;
-      if (e.button !== 0) return; e.stopPropagation();
-      if (layoutLocked()) { e.preventDefault(); select(n.id, false, e.ctrlKey); return; }
-      if (pending || reviewBusy || hasUnsaved() || strokes.length) { select(n.id, false, e.ctrlKey); if (strokes.length) notice('Clear or submit drawings before moving nodes.'); return; }
-      const start = screenPoint(e); dragging = { id: n.id, flowId: activeFlowId, start, origin: p, element: group, position: p, layoutRevision: graph.layoutRevision, graphRevision: graph.revision, moved: false };
-      group.setPointerCapture(e.pointerId);
-    });
+    group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (tool === 'connect') { if (connector) completeConnector(n.id); else { connector = { source: n.id, point: { x: p.x + 340, y: p.y + 75 } }; renderConnector(); } } else prepareSwitch().then(() => select(n.id, true, e.ctrlKey)).catch(saveFailure); } });
+    group.addEventListener('pointerdown', e => nodePointerDown(e, n, group));
+    if (tool === 'connect' || selection.has(n.id)) {
+      const handle = svg('circle', { cx: 340, cy: 75, r: 11, fill: '#8aabff', stroke: '#fff', 'stroke-width': 2, class: 'connector-handle', 'data-source-id': n.id, role: 'button', tabindex: 0, 'aria-label': `Connect from ${n.label}` });
+      handle.addEventListener('pointerdown', e => { if (e.button !== 0 || tool === 'hand' || spaceTool) return; e.stopPropagation(); beginConnector(e, n.id); });
+      handle.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); setTool('connect').then(() => { connector = { source: n.id, point: { x: p.x + 340, y: p.y + 75 } }; renderConnector(); }); } });
+      group.append(handle);
+    }
     $('nodes').append(group);
   }
   renderInk();
   drawMinimap(nodes);
+  renderConnector(); refreshWorkspace();
   $('empty').hidden = nodes.length > 0;
 }
-function select(id, discard = false, focus) {
-  if (dirty && !discard) { if (selected?.id !== id) notice('Save your changes or reload before selecting another node.'); return; }
+function select(id, discard = false, focus, additive = false) {
+  if ((dirty || edgeDirty) && !discard) { prepareSwitch().then(() => select(id, true, focus, additive)).catch(saveFailure); return; }
   if (typeof focus === 'boolean') $('focus-relations').checked = focus;
+  if (!additive) selection = new Set(id ? [id] : []);
   selected = graph.nodes.find(n => n.id === id); dirty = false;
-  newNode = false; $('new-node-position').hidden = true;
+  newNode = false; $('new-node-position').hidden = true; $('edge-editor').hidden = true;
   $('editor').hidden = !selected; $('hint').hidden = !!selected; $('edit-warning').hidden = true;
+  $('node-label').setCustomValidity('');
   if (selected) {
     $('inspector-title').textContent = 'Node details and editing'; $('node-kind').textContent = names[selected.kind]; $('node-id').textContent = selected.id;
     $('node-label').value = selected.label; $('node-detail').value = selected.detail; $('node-status').value = selected.status;
@@ -349,8 +395,11 @@ function select(id, discard = false, focus) {
     item.textContent = `${source.label} → ${target.label}: ${edge.relation}${activeFlowId && !visibleEdges().some(member => member.id === edge.id) ? ' (outside selected flow)' : ''}`;
     $('node-relations').append(item);
   }
-  $('feedback-target').textContent = selected ? `Selected: ${selected.label} · ${selected.id}` : 'No selection';
+  $('feedback-target').textContent = selection.size > 1 ? `Selected: ${selection.size} nodes` : selected ? `Selected: ${selected.label} · ${selected.id}` : 'No selection';
   renderNodeRoles();
+  if (selection.size > 1) { $('editor').hidden = true; $('relation-panel').hidden = true; $('node-flow-panel').hidden = true; $('hint').hidden = false; $('hint').textContent = `${selection.size} nodes selected`; $('inspector-title').textContent = 'Selection'; }
+  else if (!selected) $('hint').textContent = 'Select an object to inspect it.';
+  if (selected) workspace?.showPanel('properties');
   draw(); layoutControls();
 }
 async function loadGraph(id) {
@@ -365,7 +414,8 @@ async function loadGraph(id) {
   if (opened.state !== 'editing') { draftId = newId(); opened = await api('draft_open', { draftId }, id); }
   if (ticket !== loading) return;
   try { localStorage.setItem(`axcanvas-draft:${id}`, draftId); } catch { notice('Browser storage is unavailable; this draft cannot be automatically restored after reload.'); }
-  selected = null; newNode = false; dirty = false; edgeDirty = false; edgeEditing = null; instructionDirty = false;
+  closeEditSession(); selection.clear(); connector = null; saveError = ''; selected = null; newNode = false; dirty = false; edgeDirty = false; edgeEditing = null; instructionDirty = false;
+  tool = 'select'; penMode = false; spaceTool = null; gesture = null; dragging = null; workspace.setTool(tool);
   activeFlowId = opened.strokes.length ? opened.captureFlowId ?? null : null; captureFlowId = opened.captureFlowId ?? null; flowDirty = false; flowEditing = null;
   $('editor').hidden = true; $('edge-editor').hidden = true; $('hint').hidden = false;
   acceptDraft(opened, true);
@@ -397,7 +447,15 @@ $('canvas').addEventListener('pointermove', e => {
     if (points.length < 2000 && Math.hypot(p.x - last.x, p.y - last.y) >= 3) points.push({ x: Math.round(p.x), y: Math.round(p.y) });
     renderInk(); return;
   }
-  if (dragging.id) { const x = dragging.origin.x + p.x - dragging.start.x, y = dragging.origin.y + p.y - dragging.start.y; dragging.position = { x: Math.round(x), y: Math.round(y) }; dragging.moved ||= Math.abs(x - dragging.origin.x) + Math.abs(y - dragging.origin.y) > 4; dragging.element.setAttribute('transform', `translate(${x},${y})`); drawEdges(); drawMinimap(); }
+  if (dragging.id) {
+    const dx = p.x - dragging.start.x, dy = p.y - dragging.start.y;
+    dragging.moved ||= Math.abs(dx) + Math.abs(dy) > 4;
+    for (const [id, origin] of Object.entries(dragging.origins)) {
+      const position = dragging.positions[id] = { x: Math.round(origin.x + dx), y: Math.round(origin.y + dy) };
+      for (const element of $('nodes').children) if (element.dataset.nodeId === id) element.setAttribute('transform', `translate(${position.x},${position.y})`);
+    }
+    drawEdges(); drawMinimap();
+  }
   else { camera.x = dragging.camera.x - (e.clientX - dragging.clientX) * dragging.scaleX; camera.y = dragging.camera.y - (e.clientY - dragging.clientY) * dragging.scaleY; view(); }
 });
 async function endDrag(e) {
@@ -405,12 +463,13 @@ async function endDrag(e) {
   const d = dragging; dragging = null;
   $('canvas').classList.remove('panning');
   if (d.pointerId !== undefined && $('canvas').hasPointerCapture(d.pointerId)) $('canvas').releasePointerCapture(d.pointerId);
-  if (d.ink) { if (d.stroke.points.length < 2) strokes.pop(); renderInk(); instructionDirty = true; saveInstructions().catch(e => notice(e.message)); layoutControls(); return; }
-  if (d.id && d.moved) {
-    try { await changeDraft({ type: 'move', nodeId: d.id, position: d.position, flowId: d.flowId }); }
+  if (d.ink) { if (e.type !== 'pointerup' || d.stroke.points.length < 2) strokes.pop(); renderInk(); if (e.type === 'pointerup' && d.stroke.points.length > 1) { closeEditSession(); instructionDirty = true; saveInstructions().then(closeEditSession).catch(saveFailure); } layoutControls(); return; }
+  if (d.id && d.moved && e.type === 'pointerup') {
+    try { await changeDraft({ type: 'batch', operations: Object.entries(d.positions).map(([nodeId, position]) => ({ type: 'move', nodeId, position, flowId: d.flowId })) }); }
     catch (error) { notice(error.message); draw(); }
-  } else if (d.id) select(d.id, false, e.ctrlKey);
+  } else if (d.id && e.type === 'pointerup') select(d.id, true, e.ctrlKey);
   else draw();
+  layoutControls();
 }
 $('canvas').addEventListener('pointerup', endDrag);
 $('canvas').addEventListener('pointercancel', endDrag);
@@ -418,32 +477,38 @@ $('canvas').addEventListener('lostpointercapture', endDrag);
 $('canvas').addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
 $('canvas').addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
 $('canvas').addEventListener('pointerdown', e => {
-  if (e.button === 1) { if (!dragging) startPan(e); return; }
-  if (layoutLocked() || pending || reviewBusy) { if (e.button === 0 && !e.target.closest('.graph-node')) startPan(e); return; }
-  if (e.button !== 0 || !graph) return;
+  if (e.button === 0 || e.button === 1) e.preventDefault();
+  $('canvas').focus({ preventScroll: true });
+  if (e.button === 1 || e.button === 0 && (tool === 'hand' || spaceTool)) { if (!dragging) startPan(e); return; }
+  if (layoutLocked() || pending || reviewBusy || e.button !== 0 || !graph) return;
+  if (tool === 'node') { placeNode(screenPoint(e)); return; }
   if (penMode) {
     if (strokes.length >= 100) { notice('Each instruction supports up to 100 strokes. Send or clear the current drawing first.'); return; }
     if (hasUnsaved()) { notice('Save or discard active forms before drawing.'); return; }
     if (!strokes.length) captureFlowId = activeFlowId;
     const p = screenPoint(e), stroke = { points: [{ x: Math.round(p.x), y: Math.round(p.y) }] };
-    strokes.push(stroke); dragging = { ink: true, stroke }; $('canvas').setPointerCapture(e.pointerId); return;
+    strokes.push(stroke); dragging = { ink: true, stroke, pointerId: e.pointerId }; $('canvas').setPointerCapture(e.pointerId); return;
   }
-  if (e.target.closest('.graph-node')) return;
-  startPan(e);
+  if (tool === 'erase') { gesture = { kind: 'erase', original: structuredClone(strokes), changed: false }; eraseAt(screenPoint(e)); $('canvas').setPointerCapture(e.pointerId); return; }
+  if (tool !== 'select' || e.target.closest('.graph-node,.graph-edge')) return;
+  if (hasUnsaved()) { prepareSwitch().catch(saveFailure); return; }
+  const start = screenPoint(e); gesture = { kind: 'marquee', start, point: start, prior: e.shiftKey ? new Set(selection) : new Set() };
+  if (!e.shiftKey) select(null, true, false);
+  $('canvas').setPointerCapture(e.pointerId);
 });
 function zoom(factor) { const w = Math.min(20000, Math.max(350, camera.w * factor)), ratio = w / camera.w; camera.x += (camera.w - w) / 2; camera.y += (camera.h - camera.h * ratio) / 2; camera.w = w; camera.h *= ratio; view(); }
 $('canvas').addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.1 : .9); }, { passive: false });
 $('fit').onclick = fit; $('zoom-in').onclick = () => zoom(.8); $('zoom-out').onclick = () => zoom(1.25); $('show-retired').onchange = draw;
-$('sessions').onchange = () => {
-  if (layoutLocked() || pending || hasUnsaved()) { $('sessions').value = graph?.sessionId ?? ''; notice('Save or discard active form edits before changing sessions.'); return; }
-  loadGraph($('sessions').value).catch(e => notice(e.message));
+$('sessions').onchange = async () => {
+  const id = $('sessions').value; $('sessions').value = graph?.sessionId ?? '';
+  try { await prepareSwitch(); if (layoutLocked()) throw new Error('Finish the layout before changing sessions.'); await loadGraph(id); } catch (error) { saveFailure(error); }
 };
-$('editor').addEventListener('input', () => { dirty = true; layoutControls(); });
-$('cancel').onclick = () => { dirty = false; if (newNode) { newNode = false; selected = null; } select(selected?.id, true); };
+$('editor').addEventListener('input', () => { $('node-label').setCustomValidity(''); dirty = true; review = null; scheduleProperties(); layoutControls(); });
+$('cancel').onclick = () => { closeEditSession(); saveError = ''; dirty = false; if (newNode) { newNode = false; selected = null; } select(selected?.id, true); };
 $('editor').onsubmit = async e => {
   e.preventDefault();
   try { await saveNode(); notice('Saved to draft.'); }
-  catch (error) { notice(`Could not save: ${error.message}\nYour input is preserved.`); }
+  catch (error) { saveFailure(error); }
 };
 async function loadHistory() {
   const { history: list } = await api('graph_history'); $('history').replaceChildren();
@@ -465,8 +530,8 @@ function renderSessions() {
 }
 function connectEvents(sessionId) {
   events?.close(); events = new EventSource(`/api/events?sessionId=${encodeURIComponent(sessionId)}`);
-  events.onopen = () => { $('connection').textContent = '● Connected'; $('connection').className = 'connection'; };
-  events.onerror = () => { $('connection').textContent = '● Reconnecting'; $('connection').className = 'connection offline'; };
+  events.onopen = () => { $('connection').textContent = 'Server connected'; $('connection').className = 'connection'; refreshWorkspace(); };
+  events.onerror = () => { $('connection').textContent = 'Server disconnected · reconnecting'; $('connection').className = 'connection offline'; refreshWorkspace(); };
   events.onmessage = async () => {
     try { await checkCanonical(); if (graph?.sessionId === sessionId) await loadFeedback(); }
     catch (error) { notice(error.message); }
@@ -482,6 +547,8 @@ async function loadFeedback() {
   if (graph?.sessionId !== sessionId) return;
   $('feedback-list').replaceChildren();
   const status = { pending: 'Pending', applied: 'Applied', needs_clarification: 'Needs clarification', rejected: 'Rejected' };
+  deliveryState = result.feedback.length ? status[result.feedback.at(-1).status] ?? 'Unknown response' : '';
+  refreshWorkspace();
   for (const item of result.feedback.slice(-5).reverse()) {
     const li = document.createElement('li'); li.dataset.feedbackId = item.id;
     const summary = document.createElement('strong'); summary.textContent = `${status[item.status]} · ${item.strokes.length} strokes`;
@@ -491,21 +558,20 @@ async function loadFeedback() {
     $('feedback-list').append(li);
   }
 }
-$('pen').onclick = () => { penMode = !penMode; $('pen').setAttribute('aria-pressed', String(penMode)); $('canvas').classList.toggle('drawing', penMode); };
-$('clear-ink').onclick = () => { strokes = []; instructionDirty = true; renderInk(); saveInstructions().catch(e => notice(e.message)); layoutControls(); };
-$('feedback-note').oninput = () => { instructionDirty = true; review = null; clearTimeout(instructionTimer); instructionTimer = setTimeout(() => saveInstructions().catch(e => notice(e.message)), 350); layoutControls(); };
+// Toolbox events belong to workspace.js; graph gestures and shortcuts stay here.
+$('clear-ink').onclick = () => { closeEditSession(); strokes = []; instructionDirty = true; renderInk(); saveInstructions().then(closeEditSession).catch(saveFailure); layoutControls(); };
+$('feedback-note').oninput = () => { instructionDirty = true; review = null; clearTimeout(instructionTimer); if (!composing) instructionTimer = setTimeout(() => saveInstructions().catch(saveFailure), 600); layoutControls(); };
 $('send-feedback').onclick = openReview;
 $('open-session').onclick = async () => {
-  if (layoutLocked() || pending || hasUnsaved()) { notice('Save or discard active form edits before changing sessions.'); return; }
   const id = $('session-id').value.trim() || newId();
-  try { await api('session_open', { title: `Canvas ${id}` }, id); await refresh(id); $('session-id').value = ''; }
-  catch (error) { notice(error.message); }
+  try { await prepareSwitch(); if (layoutLocked()) throw new Error('Finish the layout before changing sessions.'); await api('session_open', { title: `Canvas ${id}` }, id); await refresh(id); $('session-id').value = ''; }
+  catch (error) { saveFailure(error); }
 };
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', async () => {
   const id = decodeURIComponent(location.hash.slice(1));
   if (!id || id === graph?.sessionId) return;
-  if (layoutLocked() || pending || hasUnsaved()) { location.hash = graph?.sessionId ?? ''; notice('Save or discard active form edits before changing sessions.'); return; }
-  loadGraph(id).catch(e => notice(e.message));
+  try { await prepareSwitch(); if (layoutLocked()) throw new Error('Finish the layout before changing sessions.'); await loadGraph(id); }
+  catch (error) { location.hash = graph?.sessionId ?? ''; saveFailure(error); }
 });
 
 function hasUnsaved() { return dirty || edgeDirty || instructionDirty || flowDirty; }
@@ -519,21 +585,23 @@ function layoutControls() {
   $('cancel-layout').hidden = !layoutJob && !layoutPreview; $('cancel-layout').disabled = layoutSaving;
   $('undo-layout').disabled = !layoutUndo || locked || unsaved;
   $('layout-direction').disabled = locked;
-  for (const id of ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = locked;
+  for (const id of ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = layoutLocked() || reviewBusy;
   $('save').disabled = locked || !selected;
   for (const id of ['pen', 'clear-ink', 'feedback-note', 'sessions', 'open-session', 'session-id', 'show-retired', 'add-node', 'connect-nodes', 'edge-picker', 'edge-source', 'edge-target', 'edge-relation', 'edge-reverse', 'edge-save', 'edge-cancel', 'edge-retire', 'discard-draft', 'inspect-latest']) $(id).disabled = locked || !graph;
+  for (const id of ['edge-source', 'edge-target', 'edge-relation', 'feedback-note']) $(id).disabled = layoutLocked() || reviewBusy || !graph;
   for (const id of ['flow-selector', 'add-flow', 'edit-flow']) $(id).disabled = locked || !graph;
   for (const id of ['node-flow-start', 'node-flow-end']) $(id).disabled = locked || hasUnsaved() || strokes.length > 0 || !selected || newNode || selected.status === 'retired';
   for (const id of ['flow-label', 'flow-scope', 'flow-turn-id', 'flow-nodes', 'flow-edges', 'flow-starts', 'flow-ends', 'flow-save', 'flow-retire', 'flow-cancel']) $(id).disabled = locked;
   if (!locked && flowEditing) updateFlowFields();
-  $('send-feedback').disabled = locked || !graph || !!dragging;
-  $('draft-undo').disabled = locked || hasUnsaved() || !draft?.canUndo;
-  $('draft-redo').disabled = locked || hasUnsaved() || !draft?.canRedo;
+  $('send-feedback').disabled = layoutLocked() || reviewBusy || !graph || !!dragging;
+  $('draft-undo').disabled = locked || !draft?.canUndo;
+  $('draft-redo').disabled = locked || !draft?.canRedo;
   $('draft-version').textContent = draft ? `Draft version ${draft.version}${pending ? ' · Saving…' : ''}${draftConflict ? ' · Conflict: inspect latest before submitting' : ''}` : 'No draft';
   $('review-submit').disabled = locked || !review?.canSubmit || draftConflict;
   const state = layoutSaving ? 'saving' : layoutJob ? 'computing' : layoutPreview ? 'preview' : 'idle';
   $('layout-status').dataset.state = state;
-  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing positions and routes in a Worker…' : layoutPreview ? 'Preview — not saved yet.' : unsaved ? 'Save form edits and clear or submit drawings before layout.' : layoutUndo ? 'Applied to draft — undo is available.' : 'Positions change only when you run layout.';
+  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing layout…' : layoutPreview ? 'Preview — not saved yet.' : '';
+  refreshWorkspace();
 }
 function cancelLayout(reason = '') {
   if (layoutSaving) return;
@@ -613,7 +681,7 @@ function acceptDraft(next, restoreInstructions = false) {
   renderFlowSelector();
   if (!layoutLocked() && currentView().layoutDirection) $('layout-direction').value = currentView().layoutDirection;
   if (restoreInstructions) instructionDirty = false;
-  if (selected && !dirty) select(selected.id, true);
+  if (selected && !dirty && !newNode && $('edge-editor').hidden) { const retained = new Set(selection); select(selected.id, true, undefined, true); selection = retained; }
   renderNodeRoles();
   $('revision').textContent = `rev ${next.baseRevision}`;
   $('counts').textContent = `${currentView().nodes.length} nodes · ${currentView().edges.length} relations`;
@@ -630,22 +698,30 @@ function mutateDraft(tool, args) {
     acceptDraft(next); return next;
   });
   mutationTail = task.catch(error => {
+    saveError = error.message;
     if (error.status === 409) { draftConflict = true; $('edit-warning').hidden = false; }
   }).finally(() => { pending--; layoutControls(); });
   return task;
 }
-function changeDraft(operation) {
-  if (strokes.length && (['move', 'layout', 'retire_node', 'retire_edge', 'flow', 'retire_flow', 'edge'].includes(operation.type) || (operation.type === 'node' && (!graph.nodes.some(n => n.id === operation.node.id) || operation.node.status === 'retired')))) return Promise.reject(new Error('Clear or submit drawings before changing geometry or flow membership.'));
-  return mutateDraft('draft_change', { operation });
+function changeDraft(operation, group) {
+  const operations = operation.type === 'batch' ? operation.operations : [operation];
+  if (strokes.length && operations.some(op => ['move', 'layout', 'retire_node', 'retire_edge', 'flow', 'retire_flow', 'edge'].includes(op.type) || (op.type === 'node' && (!graph.nodes.some(n => n.id === op.node.id) || op.node.status === 'retired')))) return Promise.reject(new Error('Clear or submit drawings before changing geometry or flow membership.'));
+  if (!group) closeEditSession();
+  return mutateDraft('draft_change', { operation, ...(group ? { editGroup: group } : {}) });
 }
-async function saveNode() {
-  if (!selected || !dirty) return;
-  if (!$('node-label').value.trim() || !$('editor').reportValidity()) throw new Error('Complete the node form before reviewing.');
+async function saveNode(report = true) {
+  if (!selected || !dirty || composing) return;
+  $('node-label').setCustomValidity($('node-label').value.trim() ? '' : 'Enter a node label.');
+  if (!(report ? $('editor').reportValidity() : $('editor').checkValidity())) throw new Error('Complete the node form before saving.');
+  const snapshot = formSnapshot('node'), creating = newNode;
   const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value };
-  const operation = node.status === 'retired' && !newNode ? { type: 'retire_node', nodeId: node.id } : { type: 'node', node };
-  if (newNode) { operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) }; operation.flowId = nodeFormFlowId; }
-  await changeDraft(operation);
-  dirty = false; newNode = false; select(node.id, true);
+  const operation = node.status === 'retired' && !creating ? { type: 'retire_node', nodeId: node.id } : { type: 'node', node };
+  if (creating) { operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) }; operation.flowId = nodeFormFlowId; }
+  await changeDraft(operation, creating ? undefined : editGroup(`node:${node.id}`));
+  saveError = ''; newNode = false; selected = graph.nodes.find(n => n.id === node.id);
+  if (snapshot === formSnapshot('node')) { dirty = false; if (creating) select(node.id, true, undefined, true); else { renderNodeRoles(); draw(); } }
+  if (creating) { tool = 'select'; penMode = false; workspace.setTool(tool); selection = new Set([node.id]); draw(); }
+  layoutControls();
 }
 function renderEdgePicker() {
   const picker = $('edge-picker'); picker.replaceChildren(new Option('Choose a relationship', ''));
@@ -653,7 +729,7 @@ function renderEdgePicker() {
   picker.value = edgeEditing?.id ?? '';
 }
 function openEdge(id) {
-  if (pending || layoutLocked() || edgeDirty) { notice('Save or discard relationship edits first.'); return; }
+  if (pending || layoutLocked() || dirty || edgeDirty) { notice('Save or discard active edits first.'); return; }
   const edge = graph.edges.find(e => e.id === id);
   edgeEditing = edge ? { ...edge } : { id: newId(), source: selected?.id ?? '', target: '', relation: '', status: 'active' };
   edgeFormFlowId = activeFlowId;
@@ -663,26 +739,34 @@ function openEdge(id) {
   }
   $('edge-id').textContent = edgeEditing.id; $('edge-source').value = edgeEditing.source; $('edge-target').value = edgeEditing.target;
   $('edge-relation').value = edgeEditing.relation; $('edge-editor').hidden = false; $('edge-retire').hidden = !edge;
+  $('editor').hidden = true; $('relation-panel').hidden = true; $('node-flow-panel').hidden = true; $('hint').hidden = true; $('inspector-title').textContent = 'Relationship'; workspace?.showPanel('properties');
   edgeDirty = !edge; $('edge-source').focus(); layoutControls();
 }
-async function saveEdge() {
-  if (!edgeDirty) return;
-  if (!$('edge-editor').reportValidity()) throw new Error('Complete the relationship form before reviewing.');
+async function saveEdge(report = true) {
+  if (!edgeDirty || composing) return;
+  $('edge-relation').setCustomValidity($('edge-relation').value.trim() ? '' : 'Enter a relationship label.');
+  if (!(report ? $('edge-editor').reportValidity() : $('edge-editor').checkValidity())) throw new Error('Complete the relationship form before saving.');
+  const snapshot = formSnapshot('edge'), creating = !graph.edges.some(e => e.id === edgeEditing.id);
   const edge = { ...edgeEditing, source: $('edge-source').value, target: $('edge-target').value, relation: $('edge-relation').value };
-  await changeDraft({ type: 'edge', edge, flowId: edgeFormFlowId });
-  edgeDirty = false; edgeEditing = edge; $('edge-retire').hidden = false; layoutControls();
+  await changeDraft({ type: 'edge', edge, flowId: edgeFormFlowId }, creating ? undefined : editGroup(`edge:${edge.id}`));
+  saveError = ''; if (snapshot === formSnapshot('edge')) edgeDirty = false;
+  edgeEditing = edge; $('edge-retire').hidden = false;
+  if (creating) { connector = null; tool = 'select'; penMode = false; workspace.setTool(tool); draw(); }
+  layoutControls();
 }
 async function saveInstructions() {
   clearTimeout(instructionTimer);
-  if (!draft || !instructionDirty) return;
+  if (!draft || !instructionDirty || composing) return;
   const note = $('feedback-note').value, savedStrokes = structuredClone(strokes), flowId = strokes.length ? captureFlowId : activeFlowId;
-  const nodeIds = selected && !newNode ? [selected.id] : draft.nodeIds.filter(id => graph.nodes.some(n => n.id === id && n.status !== 'retired'));
-  await changeDraft({ type: 'instruction', note, strokes: savedStrokes, nodeIds, flowId });
-  if ($('feedback-note').value === note && JSON.stringify(strokes) === JSON.stringify(savedStrokes)) instructionDirty = false;
+  const members = new Set(currentView().nodes.map(node => node.id));
+  const nodeIds = selection.size && !newNode ? [...selection].filter(id => members.has(id)) : draft.nodeIds.filter(id => members.has(id));
+  await changeDraft({ type: 'instruction', note, strokes: savedStrokes, nodeIds, flowId }, editGroup('instruction'));
+  if ($('feedback-note').value === note && JSON.stringify(strokes) === JSON.stringify(savedStrokes)) { instructionDirty = false; saveError = ''; }
   layoutControls();
 }
 async function flushForms() {
-  clearTimeout(instructionTimer); await mutationTail;
+  if (composing) throw new Error('Finish composing text before saving.');
+  clearTimeout(instructionTimer); await persistProperties(); await mutationTail;
   await saveNode(); await saveEdge(); if (flowDirty) throw new Error('Save or discard the flow editor before reviewing.'); await saveInstructions(); await mutationTail;
   if (hasUnsaved()) throw new Error('Save or explicitly discard all active input before continuing.');
 }
@@ -691,6 +775,7 @@ async function openReview() {
   reviewBusy = true; layoutControls();
   try {
     await flushForms();
+    closeEditSession();
     const result = await api('draft_review', { draftId: draft.id, baseDraftVersion: draft.version });
     review = result; draftConflict = !!result.conflict;
     $('review-summary').textContent = `Draft version ${result.version} · ${result.changes.length} changes${result.conflict ? ' · Canonical conflict: back to editing and inspect latest.' : ''}${!result.canSubmit && !result.conflict ? ' · Nothing meaningful to submit.' : ''}`;
@@ -730,6 +815,7 @@ async function watcherStatus() {
     const status = await response.json();
     if (graph?.sessionId === id) $('watcher-status').textContent = status.connected ? 'Watcher connected' : 'No watcher';
   } catch { $('watcher-status').textContent = 'Watcher status unavailable'; }
+  refreshWorkspace();
 }
 async function resetDraft() {
   const id = graph.sessionId;
@@ -738,36 +824,35 @@ async function resetDraft() {
   instructionDirty = false; strokes = []; $('feedback-note').value = '';
   draft = null; draftConflict = false; layoutUndo = null; await loadGraph(id);
 }
-$('add-node').onclick = () => {
+function placeNode(position) {
   if (hasUnsaved()) { notice('Save or discard active input before adding a node.'); return; }
   if (strokes.length) { notice('Clear or submit drawings before changing geometry.'); return; }
-  selected = { id: newId(), kind: 'concept', label: '', detail: '', status: 'proposed', sources: [] }; newNode = true; dirty = true;
+  selected = { id: newId(), kind: placementKind, label: '', detail: '', status: 'proposed', sources: [] }; newNode = true; dirty = true;
   nodeFormFlowId = activeFlowId;
   $('node-flow-panel').hidden = true;
   $('editor').hidden = false; $('hint').hidden = true; $('new-node-position').hidden = false; $('inspector-title').textContent = 'Create node';
-  $('node-id').textContent = selected.id; $('node-kind').textContent = 'Concept'; $('node-type').value = 'concept'; $('node-label').value = ''; $('node-detail').value = ''; $('node-status').value = 'proposed';
-  $('node-x').value = Math.round(camera.x + camera.w / 2 - 170); $('node-y').value = Math.round(camera.y + camera.h / 2 - 75);
+  $('node-id').textContent = selected.id; $('node-kind').textContent = names[placementKind]; $('node-type').value = placementKind; $('node-label').value = ''; $('node-detail').value = ''; $('node-status').value = 'proposed';
+  $('node-x').value = Math.round(position.x); $('node-y').value = Math.round(position.y);
+  selection.clear(); workspace.showPanel('properties');
   $('sources').replaceChildren(); $('node-label').focus(); layoutControls();
-};
+}
 $('retire-node').onclick = async () => {
   if (!selected) return;
   if (dirty) { notice('Save or discard node input before retiring it.'); return; }
   if (strokes.length) { notice('Clear or submit drawings before changing geometry.'); return; }
   try { await changeDraft({ type: 'retire_node', nodeId: selected.id }); select(null, true); } catch (error) { notice(error.message); }
 };
-$('connect-nodes').onclick = () => openEdge();
 $('edge-picker').onchange = () => { if ($('edge-picker').value) openEdge($('edge-picker').value); };
-$('edge-editor').oninput = () => { edgeDirty = true; review = null; layoutControls(); };
-$('edge-reverse').onclick = () => { const source = $('edge-source').value; $('edge-source').value = $('edge-target').value; $('edge-target').value = source; edgeDirty = true; review = null; layoutControls(); };
-$('edge-editor').onsubmit = async e => { e.preventDefault(); try { await saveEdge(); notice('Relationship saved to draft.'); } catch (error) { notice(error.message); } };
-$('edge-cancel').onclick = () => { edgeDirty = false; edgeEditing = null; $('edge-editor').hidden = true; layoutControls(); };
+$('edge-editor').oninput = () => { $('edge-relation').setCustomValidity(''); edgeDirty = true; review = null; scheduleProperties(); layoutControls(); };
+$('edge-reverse').onclick = () => { const source = $('edge-source').value; $('edge-source').value = $('edge-target').value; $('edge-target').value = source; edgeDirty = true; review = null; scheduleProperties(); layoutControls(); };
+$('edge-editor').onsubmit = async e => { e.preventDefault(); try { await saveEdge(); notice('Relationship saved to draft.'); } catch (error) { saveFailure(error); } };
+$('edge-cancel').onclick = () => { closeEditSession(); saveError = ''; edgeDirty = false; edgeEditing = null; $('edge-editor').hidden = true; select(selected?.id, true, undefined, true); layoutControls(); };
 $('edge-retire').onclick = async () => {
   if (edgeDirty) { notice('Save or discard relationship input before retiring it.'); return; }
   try { await changeDraft({ type: 'retire_edge', edgeId: edgeEditing.id }); edgeEditing = null; $('edge-editor').hidden = true; } catch (error) { notice(error.message); }
 };
 for (const direction of ['undo', 'redo']) $(`draft-${direction}`).onclick = async () => {
-  if (hasUnsaved()) { notice('Save or discard active input before undo or redo.'); return; }
-  try { await mutateDraft('draft_step', { direction }); } catch (error) { notice(error.message); }
+  try { await prepareSwitch(); await mutateDraft('draft_step', { direction }); } catch (error) { saveFailure(error); }
 };
 $('discard-draft').onclick = async () => {
   if (!confirm('Discard this entire draft, including unsaved form input, notes and drawings? The canonical graph will not change.')) return;
@@ -813,7 +898,211 @@ for (const [button, resolution] of [['rebase-merge', 'fail'], ['rebase-draft', '
   } finally { $('rebase-merge').disabled = false; $('rebase-back').disabled = false; layoutControls(); }
 };
 $('rebase-back').onclick = () => $('rebase-dialog').close();
+function nodePointerDown(e, node) {
+  if (e.button !== 0 || spaceTool || ['hand', 'draw', 'erase', 'node'].includes(tool)) return;
+  e.stopPropagation();
+  e.preventDefault();
+  $('canvas').focus({ preventScroll: true });
+  if (tool === 'connect') {
+    if (connector) completeConnector(node.id);
+    else beginConnector(e, node.id, false);
+    return;
+  }
+  if (hasUnsaved() || pending) { prepareSwitch().then(() => select(node.id, true, e.ctrlKey)).catch(saveFailure); return; }
+  closeEditSession();
+  if (e.shiftKey) {
+    if (selection.has(node.id)) selection.delete(node.id); else selection.add(node.id);
+    select(selection.has(node.id) ? node.id : [...selection].at(-1), true, e.ctrlKey, true);
+    return;
+  }
+  if (!selection.has(node.id)) select(node.id, true, e.ctrlKey);
+  else select(node.id, true, e.ctrlKey, true);
+  if (layoutLocked() || reviewBusy || strokes.length) { if (strokes.length) notice('Clear or submit drawings before moving nodes.'); draw(); return; }
+  const origins = Object.fromEntries(activeNodes().filter(n => selection.has(n.id)).map(n => [n.id, { ...point(n) }]));
+  dragging = { id: node.id, flowId: activeFlowId, start: screenPoint(e), origins, positions: structuredClone(origins), moved: false, pointerId: e.pointerId };
+  $('canvas').setPointerCapture(e.pointerId);
+}
+function beginConnector(e, source, drag = true) {
+  if (pending || hasUnsaved() || layoutLocked() || strokes.length) { notice('Save forms and clear or submit drawings before connecting nodes.'); return; }
+  closeEditSession(); tool = 'connect'; penMode = false; workspace.setTool(tool);
+  connector = { source, point: screenPoint(e), drag };
+  if (drag) $('canvas').setPointerCapture(e.pointerId);
+  draw();
+}
+function renderConnector() {
+  $('connector-preview')?.remove();
+  for (const group of $('nodes').children) {
+    const active = group.dataset.nodeId === connector?.source || group.dataset.nodeId === connector?.target;
+    group.classList.toggle('connect-target', group.dataset.nodeId === connector?.target);
+    const body = group.querySelector('.body');
+    if (body) { body.style.stroke = active ? '#70c8ac' : ''; body.style.strokeWidth = active ? '5' : ''; }
+  }
+  if (!connector || !graph) return;
+  const source = graph.nodes.find(n => n.id === connector.source); if (!source) return;
+  const p = point(source), end = connector.point;
+  $('edges').append(svg('path', { id: 'connector-preview', d: `M${p.x + 340},${p.y + 75} L${end.x},${end.y}`, fill: 'none', stroke: '#70c8ac', 'stroke-width': 4, 'stroke-dasharray': '9 6', 'pointer-events': 'none' }));
+}
+function completeConnector(target) {
+  if (!connector) return;
+  const source = connector.source; connector = null;
+  openEdge();
+  if (!edgeEditing) return;
+  $('edge-source').value = source; $('edge-target').value = target; edgeDirty = true;
+  $('edge-relation').focus(); draw();
+}
+function eraseAt(p) {
+  const radius = 12 * camera.w / Math.max(1, $('canvas').getBoundingClientRect().width);
+  const hit = stroke => stroke.points.some((b, i) => {
+    const a = stroke.points[Math.max(0, i - 1)], dx = b.x - a.x, dy = b.y - a.y;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+    return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy) <= radius;
+  });
+  const retained = strokes.filter(stroke => !hit(stroke));
+  if (retained.length !== strokes.length) { strokes = retained; gesture.changed = true; renderInk(); }
+}
+$('canvas').addEventListener('pointermove', e => {
+  const p = screenPoint(e);
+  if (connector) {
+    connector.point = p; connector.target = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]')?.dataset.nodeId;
+    renderConnector();
+  }
+  if (gesture?.kind === 'erase') eraseAt(p);
+  if (gesture?.kind === 'marquee') {
+    gesture.point = p; $('selection-marquee')?.remove();
+    const a = gesture.start;
+    $('canvas').append(svg('rect', { id: 'selection-marquee', x: Math.min(a.x, p.x), y: Math.min(a.y, p.y), width: Math.abs(p.x - a.x), height: Math.abs(p.y - a.y), fill: '#8aabff22', stroke: '#8aabff', 'stroke-width': 2, 'pointer-events': 'none' }));
+  }
+});
+function finishGesture(e) {
+  if (connector?.drag) {
+    const target = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-node-id]')?.dataset.nodeId;
+    if (e.type === 'pointerup' && target) completeConnector(target); else { connector = null; draw(); }
+  }
+  if (!gesture) return;
+  const g = gesture; gesture = null; $('selection-marquee')?.remove();
+  if (g.kind === 'erase') {
+    if (e.type !== 'pointerup') strokes = g.original;
+    else if (g.changed) { closeEditSession(); instructionDirty = true; saveInstructions().then(closeEditSession).catch(saveFailure); }
+    renderInk(); layoutControls();
+  } else if (e.type === 'pointerup') {
+    const left = Math.min(g.start.x, g.point.x), right = Math.max(g.start.x, g.point.x), top = Math.min(g.start.y, g.point.y), bottom = Math.max(g.start.y, g.point.y);
+    selection = g.prior;
+    if (right - left > 3 || bottom - top > 3) for (const n of activeNodes()) {
+      const p = point(n); if (p.x <= right && p.x + 340 >= left && p.y <= bottom && p.y + 150 >= top) selection.add(n.id);
+    }
+    select([...selection].at(-1), true, false, true);
+  }
+}
+for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('canvas').addEventListener(event, finishGesture);
+function copySelection() {
+  const nodes = activeNodes().filter(n => selection.has(n.id));
+  if (!nodes.length) throw new Error('Select nodes to copy.');
+  clipboard = { nodes: structuredClone(nodes), edges: structuredClone(visibleEdges().filter(e => e.status === 'active' && selection.has(e.source) && selection.has(e.target))), positions: Object.fromEntries(nodes.map(n => [n.id, { ...point(n) }])), offset: 0 };
+}
+async function pasteSelection() {
+  if (!clipboard) throw new Error('Copy nodes before pasting.');
+  const ids = new Map(clipboard.nodes.map(n => [n.id, newId()])), offset = clipboard.offset + 40;
+  const operations = clipboard.nodes.map(n => ({ type: 'node', node: { ...structuredClone(n), id: ids.get(n.id) }, position: { x: clipboard.positions[n.id].x + offset, y: clipboard.positions[n.id].y + offset }, flowId: activeFlowId }));
+  operations.push(...clipboard.edges.map(e => ({ type: 'edge', edge: { ...structuredClone(e), id: newId(), source: ids.get(e.source), target: ids.get(e.target) }, flowId: activeFlowId })));
+  if (operations.length > 300) throw new Error('Select fewer nodes and relationships (maximum 300 operations per paste).');
+  await changeDraft({ type: 'batch', operations }); clipboard.offset = offset;
+  selection = new Set(ids.values()); select([...selection].at(-1), true, false, true);
+}
+async function dispatchCommand(command) {
+  if (command.startsWith('node-kind:')) {
+    const kind = command.slice('node-kind:'.length);
+    if (Object.hasOwn(names, kind)) { placementKind = kind; if (newNode) { $('node-type').value = kind; dirty = true; layoutControls(); } }
+    return;
+  }
+  if (command === 'cancel-tool') { cancelGesture(); return; }
+  if (!graph) return;
+  await prepareSwitch();
+  if (layoutLocked() || reviewBusy || dragging) throw new Error('Finish the current gesture or layout before continuing.');
+  if (command === 'copy-selection') { copySelection(); return; }
+  if (strokes.length || hasUnsaved()) throw new Error('Save forms and clear or submit drawings before changing geometry.');
+  if (command === 'duplicate-selection') { copySelection(); await pasteSelection(); return; }
+  if (command === 'paste-selection') { await pasteSelection(); return; }
+  const nodes = activeNodes().filter(n => selection.has(n.id));
+  if (!nodes.length) throw new Error('Select nodes first.');
+  if (command === 'retire-selection') { await changeDraft({ type: 'batch', operations: nodes.map(n => ({ type: 'retire_node', nodeId: n.id })) }); select(null, true); return; }
+  const positions = Object.fromEntries(nodes.map(n => [n.id, { ...point(n) }]));
+  const axis = command === 'align-left' || command === 'distribute-horizontal' ? 'x' : 'y';
+  if (command.startsWith('nudge:')) {
+    const [, key, step] = command.split(':');
+    for (const p of Object.values(positions)) { p.x += key === 'ArrowLeft' ? -Number(step) : key === 'ArrowRight' ? Number(step) : 0; p.y += key === 'ArrowUp' ? -Number(step) : key === 'ArrowDown' ? Number(step) : 0; }
+  } else if (command === 'align-left' || command === 'align-top') {
+    const value = Math.min(...Object.values(positions).map(p => p[axis])); for (const p of Object.values(positions)) p[axis] = value;
+  } else if (command === 'distribute-horizontal' || command === 'distribute-vertical') {
+    if (nodes.length < 3) throw new Error('Select at least three nodes to distribute.');
+    const ordered = Object.values(positions).sort((a, b) => a[axis] - b[axis]), start = ordered[0][axis], step = (ordered.at(-1)[axis] - start) / (ordered.length - 1);
+    ordered.forEach((p, i) => { p[axis] = Math.round(start + i * step); });
+  } else throw new Error(`Unknown workspace command: ${command}`);
+  await changeDraft({ type: 'batch', operations: Object.entries(positions).map(([nodeId, position]) => ({ type: 'move', nodeId, position, flowId: activeFlowId })) });
+}
+function cancelGesture() {
+  connector = null;
+  if (gesture?.kind === 'erase') strokes = gesture.original;
+  gesture = null; $('selection-marquee')?.remove();
+  if (dragging?.ink) strokes = strokes.filter(s => s !== dragging.stroke);
+  dragging = null; $('canvas').classList.remove('panning');
+  if (newNode) { newNode = false; dirty = false; selected = null; selection.clear(); $('editor').hidden = true; }
+  if (edgeEditing && !graph?.edges.some(e => e.id === edgeEditing.id)) { edgeEditing = null; edgeDirty = false; $('edge-editor').hidden = true; }
+  tool = 'select'; penMode = false; spaceTool = null; workspace.setTool(tool); $('canvas').classList.remove('drawing'); renderInk(); draw(); layoutControls();
+}
+const editable = target => target instanceof Element && !!target.closest('input,textarea,select,[contenteditable="true"]');
+document.addEventListener('compositionstart', () => { composing = true; clearTimeout(propertyTimer); clearTimeout(instructionTimer); });
+document.addEventListener('compositionend', () => { composing = false; scheduleProperties(); if (instructionDirty) instructionTimer = setTimeout(() => saveInstructions().catch(saveFailure), 600); });
+for (const id of ['editor', 'edge-editor']) {
+  $(id).addEventListener('focusout', event => {
+    if (composing) return;
+    persistProperties().then(() => { if (!$(id).contains(event.relatedTarget)) closeEditSession(); }).catch(saveFailure);
+  });
+  $(id).addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.isComposing && !composing && !event.target.matches('textarea,button,select')) {
+      if (id === 'editor' && !newNode || id === 'edge-editor' && graph?.edges.some(e => e.id === edgeEditing?.id)) { event.preventDefault(); persistProperties().catch(saveFailure); }
+    }
+  });
+}
+$('feedback-note').addEventListener('blur', () => { if (!composing) saveInstructions().then(closeEditSession).catch(saveFailure); });
+document.addEventListener('keydown', event => {
+  if (event.defaultPrevented || composing || event.isComposing || event.target.closest?.('dialog[open],#minimap')) return;
+  const key = event.key.toLowerCase(), modifier = event.ctrlKey || event.metaKey;
+  if (modifier && key === 's') { event.preventDefault(); flushForms().catch(saveFailure); return; }
+  if (key === 'escape' && (newNode || connector || gesture || dragging?.ink || edgeEditing && !graph?.edges.some(e => e.id === edgeEditing.id))) { event.preventDefault(); cancelGesture(); return; }
+  if (editable(event.target)) return;
+  if (modifier) {
+    const command = { c: 'copy-selection', v: 'paste-selection', d: 'duplicate-selection' }[key];
+    if (command) { event.preventDefault(); dispatchCommand(command).catch(saveFailure); }
+    else if (key === 'z' || key === 'y') { event.preventDefault(); prepareSwitch().then(() => mutateDraft('draft_step', { direction: key === 'y' || event.shiftKey ? 'redo' : 'undo' })).catch(saveFailure); }
+    return;
+  }
+  if (event.altKey) return;
+  if (event.code === 'Space') { if (event.target.closest?.('button')) return; event.preventDefault(); if (!spaceTool) { spaceTool = tool; workspace.setTool('hand'); } return; }
+  if (key === 'escape') { event.preventDefault(); cancelGesture(); return; }
+  if (event.key.startsWith('Arrow') && selection.size) { event.preventDefault(); dispatchCommand(`nudge:${event.key}:${event.shiftKey ? 10 : 1}`).catch(saveFailure); return; }
+  const next = { v: 'select', h: 'hand', n: 'node', c: 'connect', p: 'draw', e: 'erase' }[key];
+  if (next) { event.preventDefault(); setTool(next); }
+});
+function releaseSpace() { if (spaceTool) { spaceTool = null; workspace.setTool(tool); refreshWorkspace(); } }
+document.addEventListener('keyup', event => { if (event.code === 'Space') releaseSpace(); });
+window.addEventListener('blur', releaseSpace);
+$('canvas').addEventListener('contextmenu', event => {
+  event.preventDefault(); $('canvas-context-menu')?.remove();
+  if (hasUnsaved()) { notice('Save or discard active input before selection commands.'); return; }
+  const id = event.target.closest('[data-node-id]')?.dataset.nodeId;
+  if (id && !selection.has(id)) select(id, true);
+  const menu = document.createElement('div'); menu.id = 'canvas-context-menu'; menu.setAttribute('role', 'menu');
+  Object.assign(menu.style, { position: 'fixed', left: `${Math.min(event.clientX, innerWidth - 210)}px`, top: `${Math.min(event.clientY, innerHeight - 320)}px`, zIndex: '100', background: '#17212f', padding: '8px', border: '1px solid #8aabff', display: 'grid' });
+  for (const [command, text] of [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']]) {
+    const button = document.createElement('button'); button.textContent = text; button.setAttribute('role', 'menuitem');
+    button.onclick = () => { menu.remove(); dispatchCommand(command).catch(saveFailure); }; menu.append(button);
+  }
+  document.body.append(menu); menu.firstElementChild.focus();
+});
+document.addEventListener('pointerdown', event => { if (!event.target.closest('#canvas-context-menu')) $('canvas-context-menu')?.remove(); });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') $('canvas-context-menu')?.remove(); });
 window.addEventListener('beforeunload', event => { if (pending || hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
 setInterval(watcherStatus, 5000);
+workspace = initWorkspace({ onTool: setTool, onCommand: command => dispatchCommand(command).catch(saveFailure), onPanel: tab => { if (tab === 'history' && graph) loadHistory().catch(saveFailure); } });
 layoutControls();
 refresh().catch(e => notice(e.message));

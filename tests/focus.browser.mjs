@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { openMenu, fillInput } from './workspace-helpers.mjs';
 
 // Run on a loaded graph with at least one relation and one node outside the selected neighborhood.
 export async function verifyConnectionFocus(page) {
@@ -19,8 +20,10 @@ export async function verifyConnectionFocus(page) {
   assert.equal(await page.$eval('#focus-relations', e => e.checked), true);
   assert.ok(await page.$$eval('.graph-edge.focused', e => e.length) > 0);
   assert.ok(await page.$$eval('.dimmed', e => e.length) > 0);
-  await page.click('#inspect-latest'); await page.waitForSelector('#rebase-dialog[open]');
-  await page.click('#rebase-back');
+  await openMenu(page, 'file');
+  await fillInput(page, '#session-id', await page.evaluate(() => decodeURIComponent(location.hash.slice(1))));
+  const refreshed = page.waitForResponse(r => r.url().endsWith('/api/agent/v1') && r.request().method() === 'POST' && JSON.parse(r.request().postData()).tool === 'graph_read');
+  await page.click('#open-session'); await refreshed;
   assert.equal(await page.$eval('#focus-relations', e => e.checked), true, 'Programmatic refresh must preserve focus');
   assert.ok(await page.$$eval('.dimmed', e => e.length) > 0);
   await page.click('.graph-node');
