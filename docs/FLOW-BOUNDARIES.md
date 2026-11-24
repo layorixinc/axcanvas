@@ -50,13 +50,51 @@ Use graph-level ID sets rather than overloading node.kind or adding artificial S
 - The review snapshot and submitted feedback SVG must show the same boundary badges as the canvas. Include them in fitting/geometry if the eventual badge design extends outside the node; prefer an inset design to avoid changing bounds.
 - Changing metadata must not auto-rearrange a user's graph. Saved positions remain stable until explicit layout.
 
-## Explicit automatic layout
-ELK layered supports per-node FIRST/LAST layer constraints. On explicit Auto layout, apply suitable constraints so starts favor the first layer and ends the last (RIGHT or DOWN). Preserve real edge identities and directions even where the engine uses cycle breaking internally.
+## Boundary-aware automatic layout: mandatory constraints
+Start/end metadata is an actual Auto layout input, not merely a badge or an ordering preference. Whenever active boundaries exist, Auto layout must honor them and validate the resulting geometry before offering a successful preview.
 
-A node marked both start and end must not receive contradictory FIRST and LAST constraints; keep its ordinary placement while rendering both roles. Cycles and other incompatible constraints require truthful diagnostics and preview inspection. Never silently invent edges, remove cycles or claim a forced order that was not achieved. Marker meaning remains valid even if an ordering constraint cannot be satisfied; preserve the old layout on engine failure.
+### Placement contract
+- RIGHT: all marked starts share the leading (leftmost) boundary layer; all marked ends share the trailing (rightmost) boundary layer.
+- DOWN: all marked starts share the leading (topmost) layer; all marked ends share the trailing (bottommost) layer.
+- Unmarked nodes belong between the marked layers when both exist. If only one boundary type is set, enforce that boundary and leave the opposite side unconstrained.
+- Multiple starts/ends share their respective layer, with spacing on the perpendicular axis. A short disconnected flow must not put its end earlier than the shared end layer of a longer flow.
+- Unmarked disconnected nodes remain in the middle region instead of being packed before starts or after ends.
+- With no boundary metadata, retain the existing layout behavior. Manual movement remains permitted and never silently changes boundary roles; the placement guarantee applies to explicit Auto layout.
+
+### Real ELK configuration
+- Keep native same-origin Worker execution, layered/ORTHOGONAL routing, measured labels, fixed node dimensions, existing spacing and stable node/edge identities.
+- Set per-node org.eclipse.elk.layered.layering.layerConstraint to FIRST_SEPARATE for start-only nodes, LAST_SEPARATE for end-only nodes, and NONE for unmarked nodes.
+- Use a documented compatible cycle-breaking strategy such as GREEDY_MODEL_ORDER. Internal cycle breaking must not mutate the stored relationship direction or labels.
+- Set org.eclipse.elk.separateConnectedComponents=false while boundaries are active. Independent component packing does not guarantee a shared leading/trailing layer across the complete graph.
+- Do not compute ordinary layout and then drag start/end nodes to the edges: that would invalidate routed paths and labels. Constraints must enter the Worker calculation itself.
+
+### Result validation and failure
+Validate the actual rectangles, not only the engine options or node-array order. For RIGHT, verify starts' x positions form the leading band, ends' x positions form the trailing band, and non-boundary rectangles lie strictly between the applicable bands without overlap. For DOWN use y/height instead. Account for floating-point tolerance and the existing layer-spacing contract.
+
+Also validate every active node has finite geometry, node/label overlap rules, complete orthogonal routes and preserved edge source/target semantics. A fulfilled ELK promise alone is not proof the requested ordering was achieved.
+
+If the engine fails or the result violates the boundary contract, show a truthful boundary-layout error, preserve the previous graph/positions/routes and do not enable Apply for that result. Never silently revert to unconstrained placement, invent edges, remove cycles, relabel roles or claim the boundaries were honored.
+
+A single active node marked both start and end is valid and occupies the only layer. With other active nodes, a node in both sets cannot satisfy two separated global boundary layers: reject that Auto layout request with actionable guidance to choose distinct boundaries or explicitly clear a role. Preserve the metadata and old layout; do not silently give the dual-role node ordinary placement.
+
+Cycles, self-loops and links between boundary nodes are not rejected merely for existing. Process them with the supported engine strategy, retain their actual directions and apply the same geometry postconditions. Return a diagnostic when a particular combination is infeasible.
+
+### Draft/review integration
+Bind Worker jobs and previews to session, canonical revisions, draft version and the exact boundary sets. Changing a role, retiring a marked node or rebasing while a job is running makes its result stale.
+
+Preview is temporary; Apply saves constrained geometry to the draft. Draft Undo/Redo and per-tab layout undo restore their exact prior states without silently reordering anything. Only final reviewed Submit publishes the complete flow metadata and geometry and completes one watcher. Marker changes alone do not auto-move nodes.
+
+### Local feasibility evidence
+Probed installed ELKjs 0.12.1 with two disconnected flows of different lengths plus an unmarked isolated node, in RIGHT and DOWN, using FIRST versus FIRST_SEPARATE and separateConnectedComponents true versus false.
+- Independent component packing produced misaligned starts or ends in these examples.
+- FIRST/LAST with joint processing aligned the boundaries but allowed the isolated node into the first layer.
+- FIRST_SEPARATE/LAST_SEPARATE with joint processing met all three conditions: aligned starts, aligned ends and strictly intermediate unmarked nodes in both directions.
+- Additional return-cycle and linked-start examples preserved their original edge endpoints while satisfying the marked layers.
+These are feasibility probes, not a universal guarantee; the implementation still needs the result validator and regression/live acceptance below.
 
 References:
 - https://eclipse.dev/elk/reference/options/org-eclipse-elk-layered-layering-layerConstraint.html
+- https://eclipse.dev/elk/reference/options/org-eclipse-elk-separateConnectedComponents.html
 - https://eclipse.dev/elk/blog/posts/2023/23-01-09-constraining-the-model.html
 
 ## Implementation sequence
@@ -68,7 +106,10 @@ References:
 ## TDD and live acceptance
 - Observe rejection/absence of explicit flow metadata against the current contract before implementation.
 - Cover create/update/clear/omit preservation, metadata-only revisions/history/replay, missing/retired/duplicate IDs, cross-session isolation and atomic rollback.
-- Cover multiple starts/ends, one node with both roles, cycles and disconnected components using real ELK output. Assert original edge source/target semantics remain unchanged.
+- Cover RIGHT/DOWN with multiple starts/ends, disconnected flows of different lengths and unmarked isolated nodes. Assert global leading/trailing boundary bands and strictly intermediate unmarked rectangles, not just non-overlap or array order.
+- Cover the valid single-node dual-role case and explicit rejection/preservation for a dual-role node with other active nodes.
+- Cover cycles, self-loops and linked boundary nodes using real ELK output, preserving original edge endpoints/directions. Verify infeasible or contract-violating output never reaches Apply and never replaces old positions/routes.
+- Permute input node order to prove placement comes from explicit roles rather than creation order. Changing roles during calculation/review must invalidate stale results and review tokens.
 - Cover draft-only marking, removal of new marked nodes, durable undo/redo/reopen, stale review rejection, marker retirement diffs, concurrent rebase and exactly one final submission notification.
 - Browser proof: agent-created markers render after reload; human role changes appear in review before Submit but not canonical data; badges, accessible labels, minimap and submitted SVG agree.
 - Verify English chrome with multilingual user labels, medium/narrow viewports, selection/focus, existing pan/zoom, manual positions and native Worker cleanup.
