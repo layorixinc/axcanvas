@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add graph, turn and custom flow memberships with multiple scoped START/END roles. Shared nodes keep one identity across flows.
+- Add scope selection, qualified canvas/minimap badges, role and membership editors, and independently persisted turn/custom layouts.
+- Enforce selected-flow boundary bands in native Worker layout; reject infeasible or invalid geometry without replacing the previous view.
+- Carry flows and scoped drawing frames through durable drafts, rebase, review, immutable feedback images and final one-shot submission. Additive migration preserves existing graph/history data.
+
 - Add durable human drafts, node/relationship creation and editing, retirement, persistent Undo/Redo, full before/after review and atomic final submission.
 - Add inspected three-way rebase with explicit conflict resolution, immutable submitted packets and captured drawing-frame protection.
 - Add one common dependency-free Node watcher: draft saves remain silent, final reviewed Submit completes one background command, and delivery never acknowledges processing.

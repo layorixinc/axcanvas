@@ -1,5 +1,6 @@
 import '/vendor/elk-api.js';
 import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
+import { flowView, boundaryRoles } from '/flows.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -12,6 +13,136 @@ let layoutJob = null, layoutPreview = null, layoutUndo = null, layoutSaving = fa
 let draft = null, mutationTail = Promise.resolve(), pending = 0, review = null, inspectedLatest = null;
 let newNode = false, edgeEditing = null, edgeDirty = false, instructionDirty = false, instructionTimer;
 let draftConflict = false, reviewBusy = false;
+let activeFlowId = null, captureFlowId = null, flowEditing = null, flowDirty = false, nodeFormFlowId = null, edgeFormFlowId = null;
+function currentView() { return flowView(graph, activeFlowId); }
+function roleText(role) { return role.start && role.end ? 'START + END' : role.start ? 'START' : 'END'; }
+function qualifiedRoles(source, nodeId) { return boundaryRoles(source, nodeId).map(role => `${role.label} · ${roleText(role)}`).join('; '); }
+function appendBadges(group, source, nodeId, flowId) {
+  const roles = boundaryRoles(source, nodeId), flow = flowView(source, flowId).flow;
+  const role = roles.find(item => item.flowId === flow?.id), others = roles.filter(item => item !== role);
+  const title = qualifiedRoles(source, nodeId);
+  if (role) {
+    group.append(svg('rect', { x: 142, y: 9, width: 145, height: 25, rx: role.start && role.end ? 2 : 8, class: 'flow-badge-outline' }));
+    const badge = svg('text', { x: 214, y: 26, class: 'flow-badge', 'data-flow-role': role.start && role.end ? 'both' : role.start ? 'start' : 'end', 'data-flow-id': role.flowId, 'aria-label': `${role.label} · ${roleText(role)}` }, roleText(role));
+    badge.append(svg('title', {}, `${role.label} · ${roleText(role)}`)); group.append(badge);
+  }
+  if (others.length) { const extra = svg('text', { x: 300, y: 26, class: 'flow-extra', 'aria-label': `${others.length} additional roles: ${title}` }, `+${others.length}`); extra.append(svg('title', {}, title)); group.append(extra); }
+}
+function renderFlowSelector() {
+  $('flow-selector').replaceChildren(new Option('Whole graph', ''));
+  for (const flow of graph.flows ?? []) if (flow.status !== 'retired' && flow.scope !== 'graph') $('flow-selector').add(new Option(flow.label, flow.id));
+  $('flow-selector').value = activeFlowId ?? '';
+  const scope = currentView();
+  $('flow-context').textContent = scope.flow ? `${scope.flow.label} · ${scope.flow.scope}${scope.flow.turnId ? ` · ${scope.flow.turnId}` : ''}` : 'Whole graph · no boundaries defined';
+  $('counts').textContent = `${scope.nodes.length} nodes · ${scope.edges.length} relations`;
+}
+function renderNodeRoles() {
+  $('node-flow-panel').hidden = !selected || newNode;
+  $('node-flow-roles').replaceChildren();
+  if (!selected || newNode) return;
+  const flow = currentView().flow;
+  $('node-flow-heading').textContent = `${flow?.label ?? 'Whole graph'} · boundaries`;
+  $('node-flow-start').checked = flow?.startNodeIds.includes(selected.id) ?? false;
+  $('node-flow-end').checked = flow?.endNodeIds.includes(selected.id) ?? false;
+  for (const item of graph.flows ?? []) {
+    if (item.status === 'retired' || selected.status === 'retired' || item.scope !== 'graph' && !item.nodeIds.includes(selected.id)) continue;
+    const role = boundaryRoles(graph, selected.id).find(role => role.flowId === item.id);
+    const li = document.createElement('li'); li.textContent = `${item.label} · ${role ? roleText(role) : 'Member'}`; $('node-flow-roles').append(li);
+  }
+}
+function emptyFlow(scope) { return { id: newId(), scope, label: scope === 'graph' ? 'Whole graph' : '', status: 'active', nodeIds: [], edgeIds: [], startNodeIds: [], endNodeIds: [] }; }
+function selectedValues(id) { return Array.from($(id).selectedOptions, option => option.value); }
+function updateFlowFields() {
+  const whole = $('flow-scope').value === 'graph', turn = $('flow-scope').value === 'turn';
+  $('flow-turn-id').disabled = !turn; $('flow-turn-id').required = turn;
+  $('flow-nodes').disabled = whole; $('flow-edges').disabled = whole;
+}
+function openFlow(create) {
+  if (!graph || pending || layoutLocked() || hasUnsaved() || strokes.length) { notice('Save or discard forms and clear or submit drawings before editing flow membership.'); return; }
+  flowEditing = structuredClone(create ? emptyFlow('custom') : currentView().flow ?? emptyFlow('graph'));
+  $('flow-label').value = flowEditing.label; $('flow-scope').value = flowEditing.scope; $('flow-turn-id').value = flowEditing.turnId ?? '';
+  for (const [id, key] of [['flow-nodes', 'nodeIds'], ['flow-starts', 'startNodeIds'], ['flow-ends', 'endNodeIds']]) {
+    $(id).replaceChildren();
+    for (const node of graph.nodes.filter(node => node.status !== 'retired')) $(id).add(new Option(`${node.label} · ${node.id}`, node.id, false, flowEditing[key].includes(node.id)));
+  }
+  $('flow-edges').replaceChildren();
+  for (const edge of graph.edges.filter(edge => edge.status === 'active')) $('flow-edges').add(new Option(`${edge.source} → ${edge.target}: ${edge.relation}`, edge.id, false, flowEditing.edgeIds.includes(edge.id)));
+  $('flow-retire').hidden = !graph.flows?.some(flow => flow.id === flowEditing.id);
+  flowDirty = true; updateFlowFields(); $('flow-editor').showModal(); layoutControls();
+}
+function closeFlow() { flowDirty = false; flowEditing = null; $('flow-editor').close(); layoutControls(); }
+$('flow-selector').onchange = () => {
+  if (hasUnsaved() || strokes.length || dragging || pending || reviewBusy || layoutLocked()) { $('flow-selector').value = activeFlowId ?? ''; notice('Save or discard active forms and clear or submit the captured drawing before changing scope.'); return; }
+  activeFlowId = $('flow-selector').value || null; layoutUndo = null; review = null;
+  edgeEditing = null; $('edge-editor').hidden = true;
+  renderFlowSelector(); renderEdgePicker(); select(currentView().nodes.some(node => node.id === selected?.id) ? selected.id : null, true);
+  if (currentView().layoutDirection) $('layout-direction').value = currentView().layoutDirection;
+  fit();
+};
+$('add-flow').onclick = () => openFlow(true);
+$('edit-flow').onclick = () => openFlow(false);
+$('flow-form').oninput = () => { flowDirty = true; updateFlowFields(); };
+$('flow-cancel').onclick = closeFlow;
+$('flow-editor').addEventListener('cancel', event => { event.preventDefault(); if (!pending) closeFlow(); });
+$('flow-form').onsubmit = async event => {
+  event.preventDefault();
+  if (!$('flow-form').reportValidity() || pending) return;
+  const scope = $('flow-scope').value;
+  const flow = { id: flowEditing.id, status: 'active', scope, label: $('flow-label').value, nodeIds: scope === 'graph' ? [] : selectedValues('flow-nodes'), edgeIds: scope === 'graph' ? [] : selectedValues('flow-edges'), startNodeIds: selectedValues('flow-starts'), endNodeIds: selectedValues('flow-ends'), ...(scope === 'turn' ? { turnId: $('flow-turn-id').value } : {}) };
+  try {
+    await changeDraft({ type: 'flow', flow }); closeFlow();
+    activeFlowId = scope === 'graph' ? null : flow.id; renderFlowSelector(); renderEdgePicker(); select(null, true); fit();
+    notice('Flow saved to draft.');
+  } catch (error) { notice(`${error.message}\nYour flow input is preserved.`); }
+};
+$('flow-retire').onclick = async () => {
+  if (!flowEditing || pending) return;
+  try { await changeDraft({ type: 'retire_flow', flowId: flowEditing.id }); closeFlow(); renderFlowSelector(); select(null, true); fit(); }
+  catch (error) { notice(error.message); }
+};
+for (const [id, key] of [['node-flow-start', 'startNodeIds'], ['node-flow-end', 'endNodeIds']]) $(id).onchange = async () => {
+  if (!selected || newNode || hasUnsaved() || strokes.length || pending || layoutLocked()) { renderNodeRoles(); return; }
+  const flow = structuredClone(currentView().flow ?? emptyFlow('graph')), nodeId = selected.id;
+  flow[key] = $(id).checked ? [...new Set([...flow[key], nodeId])] : flow[key].filter(member => member !== nodeId);
+  try { await changeDraft({ type: 'flow', flow }); notice('Boundary role saved to draft.'); }
+  catch (error) { notice(error.message); renderNodeRoles(); }
+};
+function drawReviewSnapshot() {
+  const source = draft.graph, flowId = draft.captureFlowId ?? null, captured = flowView(source, flowId), canvas = $('review-canvas');
+  canvas.replaceChildren(); canvas.hidden = false; $('review-snapshot').before(canvas);
+  canvas.setAttribute('aria-label', `${captured.flow?.label ?? 'Whole graph'} · captured drawing and boundary roles`);
+  const positions = Object.fromEntries(captured.nodes.map((node, i) => [node.id, captured.positions[node.id] ?? { x: 90 + (i % 3) * 440, y: 100 + Math.floor(i / 3) * 235 }]));
+  const points = [];
+  for (const edge of captured.edges) {
+    const route = captured.routes[edge.id], a = positions[edge.source], b = positions[edge.target];
+    const group = svg('g', { class: 'review-edge' });
+    if (route) {
+      for (const section of route.sections) { points.push(...section); group.append(svg('path', { d: section.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' '), class: 'edge-line' })); }
+      points.push(route.label, { x: route.label.x + route.label.width, y: route.label.y + route.label.height });
+      group.append(svg('rect', { ...route.label, rx: 5, class: 'edge-label-bg' }), svg('text', { x: route.label.x + route.label.width / 2, y: route.label.y + route.label.height / 2 + 4, class: 'edge-label' }, route.label.text));
+    } else {
+      const dx = b.x - a.x, dy = b.y - a.y; let x1 = a.x + 170, y1 = a.y + 75, x2 = b.x + 170, y2 = b.y + 75;
+      if (Math.abs(dx) > Math.abs(dy)) { x1 += Math.sign(dx) * 172; x2 -= Math.sign(dx) * 177; } else { y1 += Math.sign(dy) * 77; y2 -= Math.sign(dy) * 82; }
+      const parallel = captured.edges.filter(item => item.source === edge.source && item.target === edge.target || item.source === edge.target && item.target === edge.source), offset = (parallel.indexOf(edge) - (parallel.length - 1) / 2) * 44;
+      const self = edge.source === edge.target, cx = (x1 + x2) / 2 + (Math.abs(dx) <= Math.abs(dy) ? offset : 0), cy = (y1 + y2) / 2 + (Math.abs(dx) > Math.abs(dy) ? offset : 0);
+      group.append(svg('path', { d: self ? `M${a.x + 260},${a.y} C${a.x + 420 + offset},${a.y - 110} ${a.x - 80 - offset},${a.y - 110} ${a.x + 80},${a.y}` : `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, class: 'edge-line' }), svg('text', { x: self ? a.x + 170 : cx, y: self ? a.y - 75 - Math.abs(offset) / 3 : cy - 10, class: 'edge-label' }, shortRelation(edge.relation)));
+      points.push({ x: self ? a.x - 80 - Math.abs(offset) : cx, y: self ? a.y - 110 - Math.abs(offset) : cy }, { x: self ? a.x + 420 + Math.abs(offset) : cx, y: cy });
+    }
+    canvas.append(group);
+  }
+  for (const node of captured.nodes) {
+    const p = positions[node.id], group = svg('g', { transform: `translate(${p.x},${p.y})`, class: 'review-node', 'data-review-node-id': node.id, 'aria-label': `${node.label}; ${qualifiedRoles(source, node.id)}` });
+    points.push(p, { x: p.x + 340, y: p.y + 150 });
+    group.append(svg('rect', { class: 'body', width: 340, height: 150 }), svg('text', { x: 20, y: 27, class: 'kind', fill: colors[node.kind] }, names[node.kind].toUpperCase()));
+    appendBadges(group, source, node.id, flowId);
+    wrap(node.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
+    group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${node.status === 'confirmed' ? 'Confirmed' : 'Proposed'} · ${node.sources.length} sources`)); canvas.append(group);
+  }
+  for (const stroke of draft.strokes) { points.push(...stroke.points); canvas.append(svg('polyline', { points: stroke.points.map(p => `${p.x},${p.y}`).join(' '), fill: 'none', stroke: '#ffca70', 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })); }
+  let minX = 0, minY = 0, maxX = 400, maxY = 250;
+  for (const p of points) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
+  canvas.setAttribute('viewBox', `${minX - 40} ${minY - 40} ${maxX - minX + 80} ${maxY - minY + 80}`);
+}
 function newId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
@@ -27,11 +158,12 @@ async function api(tool, args = {}, sessionId = graph?.sessionId) {
   return data.result;
 }
 function svg(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); if (text !== undefined) e.textContent = text; return e; }
-function activeNodes() { return graph?.nodes.filter(n => $('show-retired').checked || n.status !== 'retired') ?? []; }
-function displayedLayout() { return layoutPreview?.layout ?? { positions: graph.positions, routes: graph.routes }; }
+function activeNodes() { return graph ? activeFlowId ? currentView().nodes : graph.nodes.filter(n => $('show-retired').checked || n.status !== 'retired') : []; }
+function visibleEdges() { return !activeFlowId && $('show-retired').checked ? graph.edges : currentView().edges; }
+function displayedLayout() { return layoutPreview?.layout ?? currentView(); }
 function point(node) {
   if (dragging?.id === node.id) return dragging.position;
-  const i = graph.nodes.findIndex(n => n.id === node.id);
+  const i = currentView().nodes.findIndex(n => n.id === node.id);
   return displayedLayout().positions[node.id] ?? { x: 90 + (i % 3) * 440, y: 100 + Math.floor(i / 3) * 235 };
 }
 let minimapBounds = null, minimapFrame = null, minimapDrag = null;
@@ -61,7 +193,7 @@ function drawMinimap(nodes = activeNodes()) {
   $('minimap-nodes').replaceChildren(); $('minimap-edges').replaceChildren();
   if (!minimapBounds) return;
   const positions = new Map(nodes.map(n => [n.id, point(n)]));
-  for (const edge of graph.edges) {
+  for (const edge of visibleEdges()) {
     const a = positions.get(edge.source), b = positions.get(edge.target);
     if (!a || !b || (!$('show-retired').checked && edge.status === 'retired')) continue;
     const route = dragging?.id ? null : displayedLayout().routes?.[edge.id];
@@ -71,6 +203,8 @@ function drawMinimap(nodes = activeNodes()) {
   for (const n of nodes) {
     const p = positions.get(n.id);
     $('minimap-nodes').append(svg('rect', { x: p.x, y: p.y, width: 340, height: 150, rx: 20, fill: colors[n.kind], class: selected?.id === n.id ? 'selected' : '', 'data-minimap-node': n.id }));
+    const role = boundaryRoles(graph, n.id).find(item => item.flowId === currentView().flow?.id);
+    if (role) { const mark = svg('text', { x: p.x + 170, y: p.y + 95, class: 'minimap-role', 'aria-label': `${role.label} · ${roleText(role)}` }, roleText(role)); mark.append(svg('title', {}, `${role.label} · ${roleText(role)}`)); $('minimap-nodes').append(mark); }
   }
   updateMinimapView();
 }
@@ -128,13 +262,13 @@ function wrap(text, max = 21) {
 }
 function neighbors() {
   const ids = new Set(selected ? [selected.id] : []);
-  if (selected) for (const e of graph.edges) if (e.status === 'active' && (e.source === selected.id || e.target === selected.id)) { ids.add(e.source); ids.add(e.target); }
+  if (selected) for (const e of visibleEdges()) if (e.source === selected.id || e.target === selected.id) { ids.add(e.source); ids.add(e.target); }
   return ids;
 }
 function drawEdges() {
   $('edges').replaceChildren();
   const ids = new Set(activeNodes().map(n => n.id));
-  for (const edge of graph.edges) {
+  for (const edge of visibleEdges()) {
     if ((!$('show-retired').checked && edge.status === 'retired') || !ids.has(edge.source) || !ids.has(edge.target)) continue;
     const route = dragging?.id ? null : displayedLayout().routes?.[edge.id];
     const focused = selected && $('focus-relations').checked && (edge.source === selected.id || edge.target === selected.id);
@@ -151,7 +285,7 @@ function drawEdges() {
       const dx = b.x - a.x, dy = b.y - a.y;
       let x1 = a.x + 170, y1 = a.y + 75, x2 = b.x + 170, y2 = b.y + 75;
       if (Math.abs(dx) > Math.abs(dy)) { x1 += Math.sign(dx) * 172; x2 -= Math.sign(dx) * 177; } else { y1 += Math.sign(dy) * 77; y2 -= Math.sign(dy) * 82; }
-      const parallel = graph.edges.filter(e => e.status === 'active' && ((e.source === edge.source && e.target === edge.target) || (e.source === edge.target && e.target === edge.source)));
+      const parallel = visibleEdges().filter(e => (e.source === edge.source && e.target === edge.target) || (e.source === edge.target && e.target === edge.source));
       const offset = (parallel.indexOf(edge) - (parallel.length - 1) / 2) * 44;
       const self = edge.source === edge.target, cx = (x1 + x2) / 2 + (Math.abs(dx) <= Math.abs(dy) ? offset : 0), cy = (y1 + y2) / 2 + (Math.abs(dx) > Math.abs(dy) ? offset : 0);
       group.append(svg('path', { d: self ? `M${a.x + 260},${a.y} C${a.x + 420 + offset},${a.y - 110} ${a.x - 80 - offset},${a.y - 110} ${a.x + 80},${a.y}` : `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`, class: 'edge-line' }));
@@ -171,6 +305,8 @@ function draw() {
     const p = point(n), group = svg('g', { transform: `translate(${p.x},${p.y})`, class: `graph-node ${selected?.id === n.id ? 'selected' : ''} ${changed.has(n.id) ? 'changed' : ''} ${n.status === 'retired' ? 'retired' : ''} ${selected && $('focus-relations').checked && !adjacent.has(n.id) ? 'dimmed' : ''}`, 'data-node-id': n.id, tabindex: 0, role: 'button', 'aria-label': `${names[n.kind]}: ${n.label}` });
     group.append(svg('title', {}, n.label), svg('rect', { class: 'body', width: 340, height: 150 }), svg('line', { x1: 0, y1: 25, x2: 0, y2: 125, class: 'accent-line', stroke: colors[n.kind] }));
     group.append(svg('text', { x: 20, y: 27, class: 'kind', fill: colors[n.kind] }, names[n.kind].toUpperCase()));
+    appendBadges(group, graph, n.id, activeFlowId);
+    group.setAttribute('aria-label', `${names[n.kind]}: ${n.label}${qualifiedRoles(graph, n.id) ? `; ${qualifiedRoles(graph, n.id)}` : ''}`);
     wrap(n.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
     group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
     group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(n.id, false, e.ctrlKey); } });
@@ -179,7 +315,7 @@ function draw() {
       if (e.button !== 0) return; e.stopPropagation();
       if (layoutLocked()) { e.preventDefault(); select(n.id, false, e.ctrlKey); return; }
       if (pending || reviewBusy || hasUnsaved() || strokes.length) { select(n.id, false, e.ctrlKey); if (strokes.length) notice('Clear or submit drawings before moving nodes.'); return; }
-      const start = screenPoint(e); dragging = { id: n.id, start, origin: p, element: group, position: p, layoutRevision: graph.layoutRevision, graphRevision: graph.revision, moved: false };
+      const start = screenPoint(e); dragging = { id: n.id, flowId: activeFlowId, start, origin: p, element: group, position: p, layoutRevision: graph.layoutRevision, graphRevision: graph.revision, moved: false };
       group.setPointerCapture(e.pointerId);
     });
     $('nodes').append(group);
@@ -210,10 +346,11 @@ function select(id, discard = false, focus) {
   $('node-relations').replaceChildren();
   if (selected) for (const edge of graph.edges) if (edge.status === 'active' && (edge.source === selected.id || edge.target === selected.id)) {
     const item = document.createElement('li'), source = graph.nodes.find(n => n.id === edge.source), target = graph.nodes.find(n => n.id === edge.target);
-    item.textContent = `${source.label} → ${target.label}: ${edge.relation}`;
+    item.textContent = `${source.label} → ${target.label}: ${edge.relation}${activeFlowId && !visibleEdges().some(member => member.id === edge.id) ? ' (outside selected flow)' : ''}`;
     $('node-relations').append(item);
   }
   $('feedback-target').textContent = selected ? `Selected: ${selected.label} · ${selected.id}` : 'No selection';
+  renderNodeRoles();
   draw(); layoutControls();
 }
 async function loadGraph(id) {
@@ -229,8 +366,10 @@ async function loadGraph(id) {
   if (ticket !== loading) return;
   try { localStorage.setItem(`axcanvas-draft:${id}`, draftId); } catch { notice('Browser storage is unavailable; this draft cannot be automatically restored after reload.'); }
   selected = null; newNode = false; dirty = false; edgeDirty = false; edgeEditing = null; instructionDirty = false;
+  activeFlowId = opened.strokes.length ? opened.captureFlowId ?? null : null; captureFlowId = opened.captureFlowId ?? null; flowDirty = false; flowEditing = null;
   $('editor').hidden = true; $('edge-editor').hidden = true; $('hint').hidden = false;
   acceptDraft(opened, true);
+  select(null, true);
   draftConflict = latest.revision !== opened.baseRevision || latest.layoutRevision !== opened.baseLayoutRevision;
   location.hash = id; remember(id, latest.title); renderSessions(); $('sessions').value = id;
   $('title').textContent = latest.title; $('subtitle').textContent = `Session ${id}`;
@@ -268,7 +407,7 @@ async function endDrag(e) {
   if (d.pointerId !== undefined && $('canvas').hasPointerCapture(d.pointerId)) $('canvas').releasePointerCapture(d.pointerId);
   if (d.ink) { if (d.stroke.points.length < 2) strokes.pop(); renderInk(); instructionDirty = true; saveInstructions().catch(e => notice(e.message)); layoutControls(); return; }
   if (d.id && d.moved) {
-    try { await changeDraft({ type: 'move', nodeId: d.id, position: d.position }); }
+    try { await changeDraft({ type: 'move', nodeId: d.id, position: d.position, flowId: d.flowId }); }
     catch (error) { notice(error.message); draw(); }
   } else if (d.id) select(d.id, false, e.ctrlKey);
   else draw();
@@ -284,6 +423,8 @@ $('canvas').addEventListener('pointerdown', e => {
   if (e.button !== 0 || !graph) return;
   if (penMode) {
     if (strokes.length >= 100) { notice('Each instruction supports up to 100 strokes. Send or clear the current drawing first.'); return; }
+    if (hasUnsaved()) { notice('Save or discard active forms before drawing.'); return; }
+    if (!strokes.length) captureFlowId = activeFlowId;
     const p = screenPoint(e), stroke = { points: [{ x: Math.round(p.x), y: Math.round(p.y) }] };
     strokes.push(stroke); dragging = { ink: true, stroke }; $('canvas').setPointerCapture(e.pointerId); return;
   }
@@ -367,11 +508,11 @@ window.addEventListener('hashchange', () => {
   loadGraph(id).catch(e => notice(e.message));
 });
 
-function hasUnsaved() { return dirty || edgeDirty || instructionDirty; }
+function hasUnsaved() { return dirty || edgeDirty || instructionDirty || flowDirty; }
 function hasDraft() { return hasUnsaved() || strokes.length > 0; }
 function layoutLocked() { return !!(layoutJob || layoutPreview || layoutSaving); }
 function layoutControls() {
-  const locked = layoutLocked() || pending > 0 || reviewBusy, unsaved = hasDraft(), available = !!graph?.nodes.some(n => n.status !== 'retired');
+  const locked = layoutLocked() || pending > 0 || reviewBusy, unsaved = hasDraft(), available = !!graph && activeNodes().some(n => n.status !== 'retired');
   $('auto-layout').disabled = !available || locked || unsaved;
   $('auto-layout').textContent = layoutJob ? 'Computing…' : 'Auto layout';
   $('apply-layout').hidden = !layoutPreview; $('apply-layout').disabled = layoutSaving;
@@ -381,6 +522,10 @@ function layoutControls() {
   for (const id of ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = locked;
   $('save').disabled = locked || !selected;
   for (const id of ['pen', 'clear-ink', 'feedback-note', 'sessions', 'open-session', 'session-id', 'show-retired', 'add-node', 'connect-nodes', 'edge-picker', 'edge-source', 'edge-target', 'edge-relation', 'edge-reverse', 'edge-save', 'edge-cancel', 'edge-retire', 'discard-draft', 'inspect-latest']) $(id).disabled = locked || !graph;
+  for (const id of ['flow-selector', 'add-flow', 'edit-flow']) $(id).disabled = locked || !graph;
+  for (const id of ['node-flow-start', 'node-flow-end']) $(id).disabled = locked || hasUnsaved() || strokes.length > 0 || !selected || newNode || selected.status === 'retired';
+  for (const id of ['flow-label', 'flow-scope', 'flow-turn-id', 'flow-nodes', 'flow-edges', 'flow-starts', 'flow-ends', 'flow-save', 'flow-retire', 'flow-cancel']) $(id).disabled = locked;
+  if (!locked && flowEditing) updateFlowFields();
   $('send-feedback').disabled = locked || !graph || !!dragging;
   $('draft-undo').disabled = locked || hasUnsaved() || !draft?.canUndo;
   $('draft-redo').disabled = locked || hasUnsaved() || !draft?.canRedo;
@@ -399,7 +544,7 @@ function cancelLayout(reason = '') {
 async function previewLayout() {
   if (!graph || layoutLocked() || hasDraft()) return;
   const cancelled = Promise.withResolvers();
-  const job = { id: newId(), sessionId: graph.sessionId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
+  const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
   layoutJob = job; layoutControls();
   job.timer = setTimeout(() => job.reject(new Error('Layout exceeded 30 seconds. The existing layout is preserved.')), 30000);
   try {
@@ -408,7 +553,7 @@ async function previewLayout() {
     const measure = document.createElement('canvas').getContext('2d');
     if (!measure || typeof window.ELK !== 'function') throw new Error('The layout engine or font measurement is unavailable.');
     measure.font = `13px ${getComputedStyle(document.body).fontFamily}`;
-    const labels = Object.fromEntries(job.snapshot.edges.filter(e => e.status === 'active').map(e => { const text = shortRelation(e.relation); return [e.id, { text, width: Math.ceil(measure.measureText(text).width) + 20, height: 28 }]; }));
+    const labels = Object.fromEntries(flowView(job.snapshot, job.flowId).edges.map(e => { const text = shortRelation(e.relation); return [e.id, { text, width: Math.ceil(measure.measureText(text).width) + 20, height: 28 }]; }));
     job.elk = new window.ELK({
       workerUrl: '/vendor/elk-worker.js', algorithms: ['layered'],
       workerFactory: url => {
@@ -418,20 +563,21 @@ async function previewLayout() {
         return worker;
       }
     });
-    const output = await Promise.race([job.elk.layout(buildLayoutGraph(job.snapshot, job.direction, labels)), cancelled.promise]);
-    if (layoutJob !== job || graph.sessionId !== job.sessionId || graph.revision !== job.baseRevision || graph.layoutRevision !== job.baseLayoutRevision) return;
-    const layout = extractLayout(output, job.direction);
-    layoutPreview = { id: job.id, sessionId: job.sessionId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, layout, before: { positions: job.snapshot.positions, routes: job.snapshot.routes, direction: job.snapshot.layoutDirection }, cameraBefore: { ...camera } };
+    const output = await Promise.race([job.elk.layout(buildLayoutGraph(job.snapshot, job.direction, labels, job.flowId)), cancelled.promise]);
+    if (layoutJob !== job || !layoutMatches(job)) return;
+    const layout = extractLayout(output, job.direction, job.snapshot, job.flowId), previous = flowView(job.snapshot, job.flowId);
+    layoutPreview = { id: job.id, sessionId: job.sessionId, draftId: job.draftId, version: job.version, flowId: job.flowId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, layout, before: { positions: previous.positions, routes: previous.routes, direction: previous.layoutDirection }, cameraBefore: { ...camera } };
     layoutJob = null; draw(); fit();
   } catch (error) { if (layoutJob === job) notice(`Could not compute layout: ${error.message}`); }
   finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; layoutControls(); }
 }
 async function applyLayout() {
   if (!layoutPreview || layoutSaving) return;
+  if (!layoutMatches(layoutPreview)) { cancelLayout('The draft or selected flow changed. Compute a fresh layout.'); return; }
   const candidate = layoutPreview; layoutPreview = null; layoutSaving = true; layoutControls();
   try {
-    await changeDraft({ type: 'layout', ...candidate.layout });
-    layoutUndo = { sessionId: candidate.sessionId, version: draft.version, before: candidate.before, cameraBefore: candidate.cameraBefore };
+    await changeDraft({ type: 'layout', ...candidate.layout, flowId: candidate.flowId });
+    layoutUndo = { sessionId: candidate.sessionId, draftId: candidate.draftId, flowId: candidate.flowId, version: draft.version, before: candidate.before, cameraBefore: candidate.cameraBefore };
     fit(); notice('Auto layout saved to draft.');
   } catch (error) {
     camera = { ...candidate.cameraBefore }; view(); notice(`Could not save layout: ${error.message}`);
@@ -441,7 +587,7 @@ async function undoLayout() {
   if (!layoutUndo || layoutLocked() || hasDraft()) return;
   const undo = layoutUndo; layoutSaving = true; layoutControls();
   try {
-    if (undo.version !== draft.version) throw new Error('The draft changed after layout. Use draft Undo instead.');
+    if (undo.version !== draft.version || undo.draftId !== draft.id || undo.flowId !== activeFlowId || undo.sessionId !== graph.sessionId) throw new Error('The draft or selected flow changed after layout. Use draft Undo instead.');
     await mutateDraft('draft_step', { direction: 'undo' });
     layoutUndo = null; camera = { ...undo.cameraBefore }; view(); notice('The previous layout was restored in the draft.');
   } catch (error) { notice(`Could not undo layout: ${error.message}`); }
@@ -453,16 +599,24 @@ $('cancel-layout').onclick = () => cancelLayout();
 $('undo-layout').onclick = undoLayout;
 $('focus-relations').onchange = draw;
 
+function layoutMatches(candidate) {
+  return candidate.sessionId === graph.sessionId && candidate.draftId === draft.id && candidate.version === draft.version && candidate.flowId === activeFlowId && candidate.baseRevision === graph.revision && candidate.baseLayoutRevision === graph.layoutRevision;
+}
 function acceptDraft(next, restoreInstructions = false) {
   const priorVersion = draft?.version;
   draft = next; graph = next.graph; review = null;
   if (priorVersion !== next.version && !layoutSaving) layoutUndo = null;
-  if (restoreInstructions || !instructionDirty) { strokes = structuredClone(next.strokes); $('feedback-note').value = next.note; }
-  if (!layoutLocked() && graph.layoutDirection) $('layout-direction').value = graph.layoutDirection;
+  if (restoreInstructions || !instructionDirty) { strokes = structuredClone(next.strokes); captureFlowId = next.captureFlowId ?? null; $('feedback-note').value = next.note; }
+  if ((restoreInstructions || !instructionDirty) && strokes.length) activeFlowId = captureFlowId;
+  if (activeFlowId && !graph.flows?.some(flow => flow.id === activeFlowId && flow.status !== 'retired')) activeFlowId = null;
+  if (layoutJob && !layoutMatches(layoutJob) || layoutPreview && !layoutMatches(layoutPreview)) cancelLayout();
+  renderFlowSelector();
+  if (!layoutLocked() && currentView().layoutDirection) $('layout-direction').value = currentView().layoutDirection;
   if (restoreInstructions) instructionDirty = false;
   if (selected && !dirty) select(selected.id, true);
+  renderNodeRoles();
   $('revision').textContent = `rev ${next.baseRevision}`;
-  $('counts').textContent = `${graph.nodes.filter(n => n.status !== 'retired').length} nodes · ${graph.edges.filter(e => e.status !== 'retired').length} relations`;
+  $('counts').textContent = `${currentView().nodes.length} nodes · ${currentView().edges.length} relations`;
   $('turn-status').textContent = `Draft version ${next.version} · not submitted`;
   $('turn-status').className = 'turn-status';
   renderEdgePicker(); draw(); layoutControls();
@@ -481,7 +635,7 @@ function mutateDraft(tool, args) {
   return task;
 }
 function changeDraft(operation) {
-  if (strokes.length && (['move', 'layout', 'retire_node'].includes(operation.type) || (operation.type === 'node' && !graph.nodes.some(n => n.id === operation.node.id)))) return Promise.reject(new Error('Clear or submit drawings before changing geometry.'));
+  if (strokes.length && (['move', 'layout', 'retire_node', 'retire_edge', 'flow', 'retire_flow', 'edge'].includes(operation.type) || (operation.type === 'node' && (!graph.nodes.some(n => n.id === operation.node.id) || operation.node.status === 'retired')))) return Promise.reject(new Error('Clear or submit drawings before changing geometry or flow membership.'));
   return mutateDraft('draft_change', { operation });
 }
 async function saveNode() {
@@ -489,22 +643,23 @@ async function saveNode() {
   if (!$('node-label').value.trim() || !$('editor').reportValidity()) throw new Error('Complete the node form before reviewing.');
   const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value };
   const operation = node.status === 'retired' && !newNode ? { type: 'retire_node', nodeId: node.id } : { type: 'node', node };
-  if (newNode) operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) };
+  if (newNode) { operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) }; operation.flowId = nodeFormFlowId; }
   await changeDraft(operation);
   dirty = false; newNode = false; select(node.id, true);
 }
 function renderEdgePicker() {
   const picker = $('edge-picker'); picker.replaceChildren(new Option('Choose a relationship', ''));
-  for (const edge of graph.edges) picker.add(new Option(`${edge.source} → ${edge.target}: ${edge.relation}${edge.status === 'retired' ? ' (retired)' : ''}`, edge.id));
+  for (const edge of visibleEdges()) picker.add(new Option(`${edge.source} → ${edge.target}: ${edge.relation}`, edge.id));
   picker.value = edgeEditing?.id ?? '';
 }
 function openEdge(id) {
   if (pending || layoutLocked() || edgeDirty) { notice('Save or discard relationship edits first.'); return; }
   const edge = graph.edges.find(e => e.id === id);
   edgeEditing = edge ? { ...edge } : { id: newId(), source: selected?.id ?? '', target: '', relation: '', status: 'active' };
+  edgeFormFlowId = activeFlowId;
   for (const field of ['edge-source', 'edge-target']) {
     $(field).replaceChildren(new Option('Choose a node', ''));
-    for (const node of graph.nodes.filter(n => n.status !== 'retired')) $(field).add(new Option(`${node.label} · ${node.id}`, node.id));
+    for (const node of currentView().nodes) $(field).add(new Option(`${node.label} · ${node.id}`, node.id));
   }
   $('edge-id').textContent = edgeEditing.id; $('edge-source').value = edgeEditing.source; $('edge-target').value = edgeEditing.target;
   $('edge-relation').value = edgeEditing.relation; $('edge-editor').hidden = false; $('edge-retire').hidden = !edge;
@@ -514,21 +669,21 @@ async function saveEdge() {
   if (!edgeDirty) return;
   if (!$('edge-editor').reportValidity()) throw new Error('Complete the relationship form before reviewing.');
   const edge = { ...edgeEditing, source: $('edge-source').value, target: $('edge-target').value, relation: $('edge-relation').value };
-  await changeDraft({ type: 'edge', edge });
+  await changeDraft({ type: 'edge', edge, flowId: edgeFormFlowId });
   edgeDirty = false; edgeEditing = edge; $('edge-retire').hidden = false; layoutControls();
 }
 async function saveInstructions() {
   clearTimeout(instructionTimer);
   if (!draft || !instructionDirty) return;
-  const note = $('feedback-note').value, savedStrokes = structuredClone(strokes);
+  const note = $('feedback-note').value, savedStrokes = structuredClone(strokes), flowId = strokes.length ? captureFlowId : activeFlowId;
   const nodeIds = selected && !newNode ? [selected.id] : draft.nodeIds.filter(id => graph.nodes.some(n => n.id === id && n.status !== 'retired'));
-  await changeDraft({ type: 'instruction', note, strokes: savedStrokes, nodeIds });
+  await changeDraft({ type: 'instruction', note, strokes: savedStrokes, nodeIds, flowId });
   if ($('feedback-note').value === note && JSON.stringify(strokes) === JSON.stringify(savedStrokes)) instructionDirty = false;
   layoutControls();
 }
 async function flushForms() {
   clearTimeout(instructionTimer); await mutationTail;
-  await saveNode(); await saveEdge(); await saveInstructions(); await mutationTail;
+  await saveNode(); await saveEdge(); if (flowDirty) throw new Error('Save or discard the flow editor before reviewing.'); await saveInstructions(); await mutationTail;
   if (hasUnsaved()) throw new Error('Save or explicitly discard all active input before continuing.');
 }
 async function openReview() {
@@ -547,7 +702,8 @@ async function openReview() {
       before.textContent = `Before:\n${JSON.stringify(change.before, null, 2)}`; after.textContent = `After:\n${JSON.stringify(change.after, null, 2)}`;
       section.append(heading, before, after); $('review-changes').append(section);
     }
-    $('review-snapshot').textContent = JSON.stringify({ graph: draft.graph, note: draft.note, strokes: draft.strokes, nodeIds: draft.nodeIds }, null, 2);
+    $('review-snapshot').textContent = JSON.stringify({ graph: draft.graph, note: draft.note, strokes: draft.strokes, nodeIds: draft.nodeIds, captureFlowId: draft.captureFlowId ?? null }, null, 2);
+    drawReviewSnapshot();
     $('review-dialog').showModal();
   } catch (error) { notice(error.message); }
   finally { reviewBusy = false; layoutControls(); }
@@ -586,6 +742,8 @@ $('add-node').onclick = () => {
   if (hasUnsaved()) { notice('Save or discard active input before adding a node.'); return; }
   if (strokes.length) { notice('Clear or submit drawings before changing geometry.'); return; }
   selected = { id: newId(), kind: 'concept', label: '', detail: '', status: 'proposed', sources: [] }; newNode = true; dirty = true;
+  nodeFormFlowId = activeFlowId;
+  $('node-flow-panel').hidden = true;
   $('editor').hidden = false; $('hint').hidden = true; $('new-node-position').hidden = false; $('inspector-title').textContent = 'Create node';
   $('node-id').textContent = selected.id; $('node-kind').textContent = 'Concept'; $('node-type').value = 'concept'; $('node-label').value = ''; $('node-detail').value = ''; $('node-status').value = 'proposed';
   $('node-x').value = Math.round(camera.x + camera.w / 2 - 170); $('node-y').value = Math.round(camera.y + camera.h / 2 - 75);

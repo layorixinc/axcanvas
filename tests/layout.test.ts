@@ -14,7 +14,7 @@ test('real layered layout follows direction, returns routed labels and leaves se
   const original = structuredClone(graph);
   for (const direction of ['RIGHT', 'DOWN']) {
     const input = buildLayoutGraph(graph, direction, measurements(graph.edges));
-    const result = extractLayout(await elk.layout(input), direction);
+    const result = extractLayout(await elk.layout(input), direction, graph);
     assert.equal(result.direction, direction);
     assert.ok(direction === 'RIGHT' ? result.positions.a.x < result.positions.b.x : result.positions.a.y < result.positions.b.y);
     for (const a of Object.keys(result.positions)) for (const b of Object.keys(result.positions)) if (a !== b) assert.equal(overlaps(result.positions[a], result.positions[b]), false);
@@ -27,7 +27,7 @@ test('real layered layout follows direction, returns routed labels and leaves se
 });
 test('cycles, parallel edges, self-loops and disconnected nodes receive distinct geometry', async () => {
   const graph = { nodes: ['a', 'b', 'c', 'isolated'].map(node), edges: [edge('ab', 'a', 'b'), edge('ab2', 'a', 'b', 'also uses'), edge('bc', 'b', 'c'), edge('ca', 'c', 'a'), edge('loop', 'c', 'c')] };
-  const result = extractLayout(await elk.layout(buildLayoutGraph(graph, 'RIGHT', measurements(graph.edges))), 'RIGHT');
+  const result = extractLayout(await elk.layout(buildLayoutGraph(graph, 'RIGHT', measurements(graph.edges))), 'RIGHT', graph);
   assert.equal(Object.keys(result.positions).length, 4); assert.equal(Object.keys(result.routes).length, 5);
   assert.notDeepEqual(result.routes.ab.sections, result.routes.ab2.sections);
   assert.ok(result.routes.loop.sections[0].length > 2);
@@ -43,7 +43,7 @@ test('cycles, parallel edges, self-loops and disconnected nodes receive distinct
 });
 test('retired content is excluded and unsupported geometry fails visibly', async () => {
   const graph = { nodes: [node('a'), { ...node('old'), status: 'retired' }], edges: [{ ...edge('old-edge', 'a', 'old'), status: 'retired' }] };
-  const result = extractLayout(await elk.layout(buildLayoutGraph(graph, 'RIGHT', {})), 'RIGHT');
+  const result = extractLayout(await elk.layout(buildLayoutGraph(graph, 'RIGHT', {})), 'RIGHT', graph);
   assert.deepEqual(Object.keys(result.positions), ['a']); assert.deepEqual(result.routes, {});
-  assert.throws(() => extractLayout({ id: 'broken', children: [{ id: 'a' }], edges: [] }, 'RIGHT'), /coordinate|position/i);
+  assert.throws(() => extractLayout({ id: 'broken', children: [{ id: 'a' }], edges: [] }, 'RIGHT', graph), /coordinate|position/i);
 });

@@ -1,6 +1,6 @@
 # Scoped flows and start/end roles
 
-Status: design only. No flow-boundary runtime/storage feature has been implemented. This revision replaces the earlier single graph-wide flow proposal.
+Status: implemented. Scoped persistence, draft/review integration, qualified canvas roles and boundary-aware native Worker layout are covered by automated and browser acceptance checks. This document replaces the earlier single graph-wide flow proposal.
 
 ## Decision: scoped roles, displayed as tags
 Multiple start/end nodes alone do not describe which flow they belong to. The same stable node can be a turn's end, the next turn's start and an ordinary node in the whole knowledge graph.
@@ -94,9 +94,9 @@ The previous global leading/trailing-layer guarantee applies to the flow being l
 - Do not claim all overlapping scope constraints were honored by one flat layout. Simultaneous multi-flow compound layout would require its own satisfiability/geometry contract; it is not a fallback for the defined scope-selection behavior.
 
 ### Engine constraints and postconditions
-Use the real same-origin ELK layered/ORTHOGONAL Worker with label measurements, spacing and stable identities. For the selected scope, use FIRST_SEPARATE for start-only members, LAST_SEPARATE for end-only members and NONE for other members, with a documented compatible strategy such as GREEDY_MODEL_ORDER.
+Use the real same-origin ELK layered/ORTHOGONAL Worker with label measurements, spacing and stable identities. Ordinary scopes use FIRST_SEPARATE for start-only members and LAST_SEPARATE for end-only members, with GREEDY_MODEL_ORDER cycle breaking and separateConnectedComponents=false.
 
-Use separateConnectedComponents=false within the selected scope to avoid packing short disconnected flows at inconsistent boundary positions. Do not run ordinary layout and then move start/end nodes independently, which would break routes and labels.
+ELK rejects links between FIRST_SEPARATE nodes, even when their roles and semantic directions are valid. For linked boundary bands, represent full-size boundary nodes as ELK compound bands with fixed-side ports. Extract compound-local coordinates into one view frame and apply the same strict boundary, route and label postconditions. Preserve original semantic node/edge identities and endpoints; do not independently post-shift nodes or invent semantic relationships.
 
 Validate actual rectangles: leading/trailing bands, strictly intermediate unmarked members, finite positions, non-overlap, labels, complete routes and preserved edge endpoints/directions. Engine success alone is insufficient. On infeasible/invalid output, preserve the old view geometry and do not enable Apply. Never silently drop constraints, remove cycles, invent edges or clear roles.
 
@@ -110,7 +110,7 @@ Earlier installed-ELKjs 0.12.1 probes covered one scope containing disconnected 
 - Joint FIRST/LAST aligned boundaries but allowed an unmarked member into the first layer.
 - Joint FIRST_SEPARATE/LAST_SEPARATE met the tested leading/trailing/intermediate postconditions.
 - Return-cycle and linked-start examples preserved original edge endpoints.
-Those probes do not validate the newly proposed multiple-scope storage/views. Implementation must add the scope-specific tests below.
+The implementation's real-ELK regressions additionally cover multiple-scope views, shared roles, input permutations, linked starts/ends, boundary-only views, isolated members, cycles, parallel edges and boundary self-loops in both directions.
 
 References:
 - https://eclipse.dev/elk/reference/options/org-eclipse-elk-layered-layering-layerConstraint.html
@@ -126,3 +126,11 @@ References:
 6. View isolation: arranging Turn 2 cannot overwrite Whole graph or Turn 1 positions. A new scope must not steal a reused node from another view.
 7. Browser proof: switch scopes and see the correct role on the same node; edit a role in a draft, review its qualified diff, submit once, reload and inspect matching badges/geometry in canvas and feedback image.
 8. Cover multilingual content, English UI, narrow screens, stale Worker/review rejection, concurrent rebase and safe drawing-frame handling across scope changes. State unverified limits honestly.
+
+## Observed verification
+
+- `npm run check`: 58 tests passed, followed by TypeScript and public JavaScript syntax checks.
+- `npm run test:browser`: real Chrome passed scoped selection/roles, independent native Worker views, durable role Undo/reload, custom-flow authoring, scoped node retirement, captured drawing reload, qualified review/SVG, one final watcher packet, and 390px/800px controls. Existing English, authoring/rebase, layout conflict/undo, selection, focus, pan, fit and minimap workflows also passed.
+- A separately deployed local session received an actual agent-authored graph with four flows. Native Worker layouts preserved Whole graph/Turn 1 geometry while arranging Turn 2. The same shared node rendered END in Turn 1 and START in Turn 2; two linked Turn 2 starts were laid out successfully.
+- The actual common watcher completed once after final reviewed submission. The agent read the captured packet and canonical graph, then acknowledged it; the UI displayed Applied. The stopped live database and WAL/SHM were backed up before additive migration.
+- Verification ran on Windows with Node.js 24.16 and Chrome. No additional paid model session, live Claude Code integration or GitHub CI run was used for this change; those are not claimed as verified.

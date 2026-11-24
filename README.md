@@ -125,6 +125,31 @@ Input/output JSON Schemas are generated from the actual tool contracts. Inspect 
 
 Errors return a non-2xx HTTP status, `isError:true`, readable `content`, `fieldErrors`, `expectedSchema` and recovery instructions. Validation failures apply nothing and do not reserve requestId: fix the input and retry. Replaying a successful mutation requires the exact original body/requestId; changing its tool, arguments or actor returns 409. For revision conflicts, re-read and reconcile rather than overwriting human edits. Prefer `curl -sS` when the agent needs to inspect error bodies.
 
+## Scoped flows and turn boundaries
+
+**Scope** selects Whole graph, a named turn or a custom flow. Nodes retain one semantic ID: the same node can be **Turn 1 · END** and **Turn 2 · START**. Start/end roles are independent of node type, status and relationship direction.
+
+- Use **Add flow** to name a turn/custom flow and choose its member nodes, relationships and multiple start/end nodes. **Edit flow** changes memberships and boundaries. Whole graph includes all active content.
+- The Inspector's start/end checkboxes stage roles for the selected scope. Qualified additional roles remain visible without applying another turn's boundaries to the current view.
+- Auto layout constrains only the selected scope. Starts share its leading band; ends share its trailing band, including disconnected members. Turn/custom view geometry is stored separately: arranging Turn 2 does not relocate Whole graph or Turn 1.
+- Role, membership and scoped-layout edits use the same durable draft, Undo/Redo, review and final Submit workflow. No agent notification is emitted by intermediate saves.
+- Drawings retain their captured scope. Clear a drawing before switching views or changing its coordinate frame; do not reinterpret a Turn 1 drawing as Turn 2.
+
+Agents explicitly provide stable flow IDs and turnId values; revision numbers are not turn numbers. `graph_commit.flows` upserts complete definitions while omitted flows remain unchanged. Example metadata for already-existing graph entities:
+
+```json
+{
+  "flows": [
+    {"id":"turn-1","scope":"turn","turnId":"turn-1","label":"Turn 1","nodeIds":["question","shared"],"edgeIds":["question-shared"],"startNodeIds":["question"],"endNodeIds":["shared"]},
+    {"id":"turn-2","scope":"turn","turnId":"turn-2","label":"Turn 2","nodeIds":["shared","conclusion"],"edgeIds":["shared-conclusion"],"startNodeIds":["shared"],"endNodeIds":["conclusion"]}
+  ]
+}
+```
+
+Use `retireFlowIds` to retire definitions explicitly. Retiring member nodes/relationships through an agent commit must repair affected flows in that same transaction. `graph_layout.flowId` selects a turn/custom layout; omit it for Whole graph. A one-member flow may be both START and END; with multiple members, that conflicting layout constraint is rejected without deleting valid metadata or moving nodes.
+
+Existing databases default to no flows; historical memberships are never invented. A turn view shows current shared node content, while immutable history/submissions preserve earlier content. See [scoped-flow design](docs/FLOW-BOUNDARIES.md) and [implementation contract](docs/SCOPED-FLOW-CONTRACT.md).
+
 ## Canvas controls
 
 - **Add node** creates a node at an explicit or visible-center position without relocating existing nodes. Edit its type, label, details and status; **Save to draft** stages it.

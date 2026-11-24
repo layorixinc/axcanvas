@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { commitSchema, layoutSchema, openSchema, draftOperationSchema, draftIdSchema, draftVersionSchema, draftRebaseSchema, type Graph, type GraphNode, type GraphEdge, type CommitResult, type Feedback, type LayoutChange, type DraftView, type GraphView } from './schema.ts';
 import { graphView, stable, validateWork, applyOperation, diff, mergeGraph, type DraftWork } from './review.ts';
+import { flowView, annotationFrame, validateFlows, validateGeometry, invalidateFlowRoutes, pruneFlowLayouts } from './flows.ts';
 
 export class GraphError extends Error {
   code: string;
@@ -21,8 +22,13 @@ function canonical(value: unknown): string {
 function distinct(ids: string[], name: string) {
   if (new Set(ids).size !== ids.length) throw new GraphError('INVALID_GRAPH', `Duplicate ${name} ID`);
 }
-type GraphRow = { graph_id: string; session_id: string; title: string; revision: number; snapshot: string; positions: string; layout_revision: number; routes: string; layout_direction: 'RIGHT' | 'DOWN' | null };
+type GraphRow = { graph_id: string; session_id: string; title: string; revision: number; snapshot: string; positions: string; layout_revision: number; routes: string; layout_direction: 'RIGHT' | 'DOWN' | null; flows: string; flow_layouts: string };
 type DraftRecord = { id: string; sessionId: string; version: number; state: DraftView['state']; base: GraphView; work: DraftWork; checkpoint: number; submittedVersion?: number; token?: string; feedbackId?: string; submittedFeedback?: Feedback };
+function restoreFeedback(item: Feedback): Feedback {
+  item.captureFlowId ??= null;
+  for (const graph of [item.capture, item.review?.before, item.review?.after]) if (graph) { graph.flows ??= []; graph.flowLayouts ??= {}; }
+  return item;
+}
 
 export class GraphStore {
   private db: DatabaseSync;
@@ -72,7 +78,7 @@ export class GraphStore {
       CREATE INDEX IF NOT EXISTS submissions_session_cursor ON submissions(session_id,cursor);
     `);
     const columns = this.db.prepare('PRAGMA table_info(graphs)').all().map(column => column.name);
-    const additions: Record<string, string> = { routes: "TEXT NOT NULL DEFAULT '{}'", layout_direction: 'TEXT' };
+    const additions: Record<string, string> = { routes: "TEXT NOT NULL DEFAULT '{}'", layout_direction: 'TEXT', flows: "TEXT NOT NULL DEFAULT '[]'", flow_layouts: "TEXT NOT NULL DEFAULT '{}'" };
     for (const [name, definition] of Object.entries(additions)) if (!columns.includes(name)) this.db.exec(`ALTER TABLE graphs ADD COLUMN ${name} ${definition}`);
   }
   close() { if (!this.closed) { this.db.close(); this.closed = true; } }
@@ -113,12 +119,12 @@ export class GraphStore {
     return {
       graphId: row.graph_id, sessionId: row.session_id, title: row.title, revision: row.revision,
       ...JSON.parse(row.snapshot), positions: JSON.parse(row.positions), layoutRevision: row.layout_revision,
-      routes: JSON.parse(row.routes), layoutDirection: row.layout_direction
+      routes: JSON.parse(row.routes), layoutDirection: row.layout_direction, flows: JSON.parse(row.flows), flowLayouts: JSON.parse(row.flow_layouts)
     };
   }
   history(graphId: string): Graph[] {
     this.read(graphId);
-    return this.db.prepare('SELECT snapshot FROM history WHERE graph_id=? ORDER BY revision').all(graphId).map(r => JSON.parse(r.snapshot as string));
+    return this.db.prepare('SELECT snapshot FROM history WHERE graph_id=? ORDER BY revision').all(graphId).map(r => ({ flows: [], flowLayouts: {}, changedFlowIds: [], ...JSON.parse(r.snapshot as string) }));
   }
   commit(raw: unknown, actor: 'agent' | 'user' = 'agent'): CommitResult {
     const input = commitSchema.parse(raw);
@@ -127,13 +133,14 @@ export class GraphStore {
       const previous = this.db.prepare('SELECT request_hash,result FROM commits WHERE graph_id=? AND request_id=?').get(input.graphId, input.requestId) as { request_hash: string; result: string } | undefined;
       if (previous) {
         if (previous.request_hash !== hash) throw new GraphError('REQUEST_ID_REUSED', 'Request ID reused with a different body');
-        return JSON.parse(previous.result) as CommitResult;
+        return { changedFlowIds: [], ...JSON.parse(previous.result) } as CommitResult;
       }
       const graph = this.read(input.graphId);
       if (input.baseRevision !== graph.revision) throw new GraphError('REVISION_CONFLICT', `Revision conflict: expected ${graph.revision}, received ${input.baseRevision}; read the graph again`, { currentRevision: graph.revision });
       distinct(input.nodes.map(n => n.id), 'node'); distinct(input.edges.map(e => e.id), 'edge');
       distinct(input.retireNodeIds, 'retired node'); distinct(input.retireEdgeIds, 'retired edge');
-      if (!input.nodes.length && !input.edges.length && !input.retireNodeIds.length && !input.retireEdgeIds.length) throw new GraphError('INVALID_GRAPH', 'Empty graph change is not an answer');
+      distinct((input.flows ?? []).map(flow => flow.id), 'flow');
+      if (!input.nodes.length && !input.edges.length && !input.retireNodeIds.length && !input.retireEdgeIds.length && !input.flows?.length && !input.retireFlowIds?.length) throw new GraphError('INVALID_GRAPH', 'Empty graph change is not an answer');
       const nodes = new Map<string, GraphNode>(graph.nodes.map(n => [n.id, n]));
       const edges = new Map<string, GraphEdge>(graph.edges.map(e => [e.id, e]));
       for (const n of input.nodes) nodes.set(n.id, n);
@@ -152,11 +159,21 @@ export class GraphStore {
         if (e.status === 'active' && (nodes.get(e.source)!.status === 'retired' || nodes.get(e.target)!.status === 'retired')) edges.set(e.id, { ...e, status: 'retired' });
       }
       const snapshot = { nodes: [...nodes.values()], edges: [...edges.values()] };
+      const flows = new Map(graph.flows.map(flow => [flow.id, flow]));
+      for (const flow of input.flows ?? []) flows.set(flow.id, flow);
+      for (const id of input.retireFlowIds ?? []) {
+        const flow = flows.get(id);
+        if (!flow) throw new GraphError('INVALID_GRAPH', `Unknown retired flow: ${id}`);
+        flows.set(id, { ...flow, status: 'retired' });
+      }
+      const next = { ...graph, ...snapshot, flows: [...flows.values()], flowLayouts: structuredClone(graph.flowLayouts) };
+      invalidateFlowRoutes(next); pruneFlowLayouts(next); validateFlows(next);
+      const changedFlowIds = next.flows.filter(flow => stable(flow) !== stable(graph.flows.find(old => old.id === flow.id))).map(flow => flow.id);
       const revision = graph.revision + 1;
       const at = new Date().toISOString();
-      this.db.prepare("UPDATE graphs SET snapshot=?,revision=?,updated_at=?,routes='{}',layout_revision=layout_revision+? WHERE graph_id=?").run(JSON.stringify(snapshot), revision, at, Object.keys(graph.routes).length ? 1 : 0, graph.graphId);
-      const committed: CommitResult = { graphId: graph.graphId, revision, answerId: input.answerId, changedNodeIds: [...new Set([...input.nodes.map(n => n.id), ...input.retireNodeIds])], changedEdgeIds: [...edges.values()].filter(e => JSON.stringify(graph.edges.find(old => old.id === e.id)) !== JSON.stringify(e)).map(e => e.id) };
-      this.db.prepare('INSERT INTO history(graph_id,revision,snapshot,actor,at) VALUES(?,?,?,?,?)').run(graph.graphId, revision, JSON.stringify({ ...this.read(graph.graphId), actor, answerId: input.answerId, changedNodeIds: committed.changedNodeIds, at }), actor, at);
+      this.db.prepare("UPDATE graphs SET snapshot=?,revision=?,updated_at=?,routes='{}',flows=?,flow_layouts=?,layout_revision=layout_revision+? WHERE graph_id=?").run(JSON.stringify(snapshot), revision, at, JSON.stringify(next.flows), JSON.stringify(next.flowLayouts), Object.keys(graph.routes).length || stable(next.flowLayouts) !== stable(graph.flowLayouts) ? 1 : 0, graph.graphId);
+      const committed: CommitResult = { graphId: graph.graphId, revision, answerId: input.answerId, changedFlowIds, changedNodeIds: [...new Set([...input.nodes.map(n => n.id), ...input.retireNodeIds])], changedEdgeIds: [...edges.values()].filter(e => JSON.stringify(graph.edges.find(old => old.id === e.id)) !== JSON.stringify(e)).map(e => e.id) };
+      this.db.prepare('INSERT INTO history(graph_id,revision,snapshot,actor,at) VALUES(?,?,?,?,?)').run(graph.graphId, revision, JSON.stringify({ ...this.read(graph.graphId), actor, answerId: input.answerId, changedNodeIds: committed.changedNodeIds, changedFlowIds, at }), actor, at);
       this.db.prepare('INSERT INTO commits VALUES(?,?,?,?,?,?)').run(graph.graphId, input.requestId, hash, input.answerId, actor, JSON.stringify(committed));
       return committed;
     });
@@ -169,16 +186,16 @@ export class GraphStore {
       const graph = this.read(graphId);
       if (input.baseRevision !== graph.revision) throw new GraphError('REVISION_CONFLICT', 'Graph changed since layout computation; read again', { currentRevision: graph.revision });
       if (graph.layoutRevision !== input.baseLayoutRevision) throw new GraphError('LAYOUT_REVISION_CONFLICT', 'Layout revision conflict; read again', { currentRevision: graph.layoutRevision });
-      for (const id of Object.keys(input.positions)) if (!graph.nodes.some(n => n.id === id)) throw new GraphError('INVALID_LAYOUT', `Unknown layout node: ${id}`);
+      const view = flowView(graph, input.flowId ?? null);
+      validateGeometry(graph, view.flowId, input);
       if (input.mode === 'move' && Object.keys(input.routes).length) throw new GraphError('INVALID_LAYOUT', 'Move invalidates routes; use replace to apply routed geometry');
-      for (const id of Object.keys(input.routes)) {
-        const edge = graph.edges.find(e => e.id === id);
-        if (!edge || edge.status !== 'active') throw new GraphError('INVALID_LAYOUT', `Unknown or retired routed edge: ${id}`);
-      }
-      const positions = input.mode === 'move' ? { ...graph.positions, ...input.positions } : input.positions;
+      const positions = input.mode === 'move' ? { ...view.positions, ...input.positions } : input.positions;
       const routes = input.mode === 'move' ? {} : input.routes;
-      const direction = input.mode === 'move' ? graph.layoutDirection : input.direction;
-      this.db.prepare('UPDATE graphs SET positions=?,routes=?,layout_direction=?,layout_revision=? WHERE graph_id=?').run(JSON.stringify(positions), JSON.stringify(routes), direction, graph.layoutRevision + 1, graphId);
+      const direction = input.mode === 'move' ? view.direction : input.direction;
+      if (view.flowId) {
+        graph.flowLayouts[view.flowId] = { positions, routes, direction };
+        this.db.prepare('UPDATE graphs SET flow_layouts=?,layout_revision=? WHERE graph_id=?').run(JSON.stringify(graph.flowLayouts), graph.layoutRevision + 1, graphId);
+      } else this.db.prepare('UPDATE graphs SET positions=?,routes=?,layout_direction=?,layout_revision=? WHERE graph_id=?').run(JSON.stringify(positions), JSON.stringify(routes), direction, graph.layoutRevision + 1, graphId);
     });
     this.changed(graphId);
     return this.read(graphId);
@@ -197,11 +214,12 @@ export class GraphStore {
     };
     return readOnly ? run() : this.transaction(run);
   }
-  submitFeedback(sessionId: string, input: { baseRevision: number; note: string; nodeIds: string[]; strokes: Feedback['strokes'] }): Feedback {
+  submitFeedback(sessionId: string, input: { baseRevision: number; note: string; nodeIds: string[]; strokes: Feedback['strokes']; captureFlowId?: string | null }): Feedback {
     const graph = this.readSession(sessionId);
     if (input.baseRevision !== graph.revision) throw new GraphError('REVISION_CONFLICT', 'Feedback is based on an older graph; read again', { currentRevision: graph.revision });
-    for (const id of input.nodeIds) if (!graph.nodes.some(n => n.id === id)) throw new GraphError('INVALID_GRAPH', `Unknown feedback node: ${id}`);
-    const feedback: Feedback = { id: randomUUID(), sessionId, graphRevision: graph.revision, nodeIds: input.nodeIds, note: input.note, strokes: input.strokes, status: 'pending', resolution: '', createdAt: new Date().toISOString(), capture: graph };
+    const view = flowView(graph, input.captureFlowId ?? null);
+    for (const id of input.nodeIds) if (!view.nodes.some(n => n.id === id)) throw new GraphError('INVALID_GRAPH', `Unknown or nonmember feedback node: ${id}`);
+    const feedback: Feedback = { id: randomUUID(), sessionId, graphRevision: graph.revision, nodeIds: input.nodeIds, note: input.note, strokes: input.strokes, captureFlowId: view.flowId, status: 'pending', resolution: '', createdAt: new Date().toISOString(), capture: graph };
     this.db.prepare('INSERT INTO feedback VALUES(?,?,?,?)').run(feedback.id, graph.graphId, 'pending', JSON.stringify(feedback));
     this.changed(graph.graphId);
     return feedback;
@@ -209,13 +227,13 @@ export class GraphStore {
   feedback(sessionId: string, status: 'pending' | 'all' = 'pending'): Feedback[] {
     const graph = this.readSession(sessionId);
     const rows = status === 'all' ? this.db.prepare('SELECT payload FROM feedback WHERE graph_id=? ORDER BY rowid').all(graph.graphId) : this.db.prepare("SELECT payload FROM feedback WHERE graph_id=? AND status='pending' ORDER BY rowid").all(graph.graphId);
-    return rows.map(row => JSON.parse(row.payload as string) as Feedback);
+    return rows.map(row => restoreFeedback(JSON.parse(row.payload as string) as Feedback));
   }
   feedbackItem(sessionId: string, id: string): Feedback {
     const graph = this.readSession(sessionId);
     const row = this.db.prepare('SELECT payload FROM feedback WHERE graph_id=? AND id=?').get(graph.graphId, id) as { payload: string } | undefined;
     if (!row) throw new GraphError('NOT_FOUND', 'Feedback not found in this session');
-    return JSON.parse(row.payload) as Feedback;
+    return restoreFeedback(JSON.parse(row.payload) as Feedback);
   }
   ackFeedback(sessionId: string, ids: string[], status: Exclude<Feedback['status'], 'pending'>, note: string): Feedback[] {
     return this.transaction(() => {
@@ -232,12 +250,17 @@ export class GraphStore {
     this.readSession(sessionId);
     const row = this.db.prepare('SELECT payload FROM drafts WHERE id=? AND session_id=?').get(draftId, sessionId) as { payload: string } | undefined;
     if (!row) throw new GraphError('DRAFT_NOT_FOUND', 'Draft not found in this session; open a new draft ID or restore this session’s saved draft');
-    return JSON.parse(row.payload) as DraftRecord;
+    const draft = JSON.parse(row.payload) as DraftRecord;
+    draft.base.flows ??= []; draft.base.flowLayouts ??= {};
+    draft.work.graph.flows ??= []; draft.work.graph.flowLayouts ??= {}; draft.work.captureFlowId ??= null;
+    if (draft.work.routeOrigin) { draft.work.routeOrigin.flows ??= []; draft.work.routeOrigin.flowLayouts ??= {}; }
+    if (draft.submittedFeedback) restoreFeedback(draft.submittedFeedback);
+    return draft;
   }
   private draftView(draft: DraftRecord): DraftView {
     const before = this.db.prepare('SELECT checkpoint FROM draft_history WHERE draft_id=? AND checkpoint<? ORDER BY checkpoint DESC LIMIT 1').get(draft.id, draft.checkpoint);
     const after = this.db.prepare('SELECT checkpoint FROM draft_history WHERE draft_id=? AND checkpoint>? ORDER BY checkpoint LIMIT 1').get(draft.id, draft.checkpoint);
-    return { id: draft.id, sessionId: draft.sessionId, version: draft.version, state: draft.state, baseRevision: draft.base.revision, baseLayoutRevision: draft.base.layoutRevision, graph: draft.work.graph, note: draft.work.note, strokes: draft.work.strokes, nodeIds: draft.work.nodeIds, canUndo: draft.state === 'editing' && !!before, canRedo: draft.state === 'editing' && !!after };
+    return { id: draft.id, sessionId: draft.sessionId, version: draft.version, state: draft.state, baseRevision: draft.base.revision, baseLayoutRevision: draft.base.layoutRevision, graph: draft.work.graph, note: draft.work.note, strokes: draft.work.strokes, nodeIds: draft.work.nodeIds, captureFlowId: draft.work.captureFlowId ?? null, canUndo: draft.state === 'editing' && !!before, canRedo: draft.state === 'editing' && !!after };
   }
   private checkDraft(draft: DraftRecord, version: number) {
     if (draft.state !== 'editing') throw new GraphError('DRAFT_STATE_CONFLICT', `Draft is ${draft.state}; read it and open a new draft to make further changes`, { currentDraftVersion: draft.version });
@@ -260,7 +283,7 @@ export class GraphStore {
       const exists = this.db.prepare('SELECT session_id FROM drafts WHERE id=?').get(draftId);
       if (exists) return this.draftView(this.draftRecord(sessionId, draftId));
       const base = graphView(graph);
-      const draft: DraftRecord = { id: draftId, sessionId, version: 0, state: 'editing', base, work: { graph: base, note: '', strokes: [], nodeIds: [] }, checkpoint: 0 };
+      const draft: DraftRecord = { id: draftId, sessionId, version: 0, state: 'editing', base, work: { graph: base, note: '', strokes: [], nodeIds: [], captureFlowId: null }, checkpoint: 0 };
       this.db.prepare('INSERT INTO drafts VALUES(?,?,?)').run(draftId, sessionId, JSON.stringify(draft));
       this.db.prepare('INSERT INTO draft_history VALUES(?,?,?)').run(draftId, 0, JSON.stringify(draft.work));
       return this.draftView(draft);
@@ -291,6 +314,8 @@ export class GraphStore {
       const row = this.db.prepare(query).get(draft.id, draft.checkpoint) as { checkpoint: number; payload: string } | undefined;
       if (!row) throw new GraphError('DRAFT_HISTORY_CONFLICT', `No ${input.direction} checkpoint remains; read draft_read`);
       draft.work = JSON.parse(row.payload); draft.checkpoint = row.checkpoint; draft.version++;
+      draft.work.graph.flows ??= []; draft.work.graph.flowLayouts ??= {}; draft.work.captureFlowId ??= null;
+      if (draft.work.routeOrigin) { draft.work.routeOrigin.flows ??= []; draft.work.routeOrigin.flowLayouts ??= {}; }
       this.saveDraft(draft);
       return this.draftView(draft);
     });
@@ -304,7 +329,11 @@ export class GraphStore {
       if (latest.revision !== input.baseRevision || latest.layoutRevision !== input.baseLayoutRevision) throw new GraphError('DRAFT_BASE_CONFLICT', 'The inspected graph changed; graph_read again before rebasing', { currentRevision: latest.revision, currentLayoutRevision: latest.layoutRevision });
       const merged = mergeGraph(draft.base, draft.work.graph, latest, input.resolution);
       if (merged.conflicts.length && input.resolution === 'fail') throw new GraphError('DRAFT_REBASE_CONFLICT', 'Conflicting changes need explicit draft or latest resolution; no changes were applied', { conflicts: merged.conflicts });
-      if (draft.work.strokes.length && stable(merged.graph.positions) !== stable(draft.work.graph.positions)) throw new GraphError('DRAFT_REBASE_CONFLICT', 'Rebase would move the captured drawing frame; clear drawings with an instruction operation before rebasing. No changes were applied.', { conflicts: ['positions'] });
+      if (draft.work.strokes.length) {
+        let frameChanged = false;
+        try { frameChanged = stable(annotationFrame(merged.graph, draft.work.captureFlowId ?? null)) !== stable(annotationFrame(draft.work.graph, draft.work.captureFlowId ?? null)); } catch { frameChanged = true; }
+        if (frameChanged) throw new GraphError('DRAFT_REBASE_CONFLICT', 'Rebase would change the captured drawing frame; clear drawings before rebasing. No changes were applied.', { conflicts: ['captureFlowId', 'positions'] });
+      }
       draft.work.graph = merged.graph;
       delete draft.work.routeOrigin;
       validateWork(draft.work);
@@ -351,13 +380,13 @@ export class GraphStore {
       if (!review.canSubmit) throw new GraphError('VALIDATION_FAILED', 'No meaningful changes or instructions to submit');
       validateWork(draft.work);
       const graph = this.readSession(sessionId);
-      const semantic = review.changes.some(change => change.entity === 'node' || change.entity === 'edge');
-      const layout = review.changes.some(change => change.entity === 'position' || change.entity === 'layout');
+      const semantic = review.changes.some(change => change.entity === 'node' || change.entity === 'edge' || change.entity === 'flow');
+      const layout = review.changes.some(change => change.entity === 'position' || change.entity === 'layout' || change.entity === 'flow_layout');
       const after: GraphView = { ...draft.work.graph, revision: graph.revision + Number(semantic), layoutRevision: graph.layoutRevision + Number(layout) };
       const at = new Date().toISOString();
-      this.db.prepare('UPDATE graphs SET snapshot=?,revision=?,positions=?,routes=?,layout_direction=?,layout_revision=?,updated_at=? WHERE graph_id=?').run(JSON.stringify({ nodes: after.nodes, edges: after.edges }), after.revision, JSON.stringify(after.positions), JSON.stringify(after.routes), after.layoutDirection, after.layoutRevision, at, graph.graphId);
-      if (semantic) this.db.prepare('INSERT INTO history VALUES(?,?,?,?,?)').run(graph.graphId, after.revision, JSON.stringify({ ...after, graphId: graph.graphId, actor: 'user', answerId: `draft-${draft.id}`, changedNodeIds: review.changes.filter(change => change.entity === 'node').map(change => change.id), at }), 'user', at);
-      const feedback: Feedback = { id: randomUUID(), sessionId, graphRevision: after.revision, note: draft.work.note, nodeIds: draft.work.nodeIds, strokes: draft.work.strokes, status: 'pending', resolution: '', createdAt: at, capture: { ...after, graphId: graph.graphId }, review: { draftId: draft.id, baseRevision: draft.base.revision, baseLayoutRevision: draft.base.layoutRevision, changes: review.changes, before: draft.base, after } };
+      this.db.prepare('UPDATE graphs SET snapshot=?,revision=?,positions=?,routes=?,layout_direction=?,layout_revision=?,updated_at=?,flows=?,flow_layouts=? WHERE graph_id=?').run(JSON.stringify({ nodes: after.nodes, edges: after.edges }), after.revision, JSON.stringify(after.positions), JSON.stringify(after.routes), after.layoutDirection, after.layoutRevision, at, JSON.stringify(after.flows), JSON.stringify(after.flowLayouts), graph.graphId);
+      if (semantic) this.db.prepare('INSERT INTO history VALUES(?,?,?,?,?)').run(graph.graphId, after.revision, JSON.stringify({ ...after, graphId: graph.graphId, actor: 'user', answerId: `draft-${draft.id}`, changedNodeIds: review.changes.filter(change => change.entity === 'node').map(change => change.id), changedFlowIds: review.changes.filter(change => change.entity === 'flow').map(change => change.id), at }), 'user', at);
+      const feedback: Feedback = { id: randomUUID(), sessionId, graphRevision: after.revision, note: draft.work.note, nodeIds: draft.work.nodeIds, strokes: draft.work.strokes, captureFlowId: draft.work.captureFlowId ?? null, status: 'pending', resolution: '', createdAt: at, capture: { ...after, graphId: graph.graphId }, review: { draftId: draft.id, baseRevision: draft.base.revision, baseLayoutRevision: draft.base.layoutRevision, changes: review.changes, before: draft.base, after } };
       this.db.prepare('INSERT INTO feedback VALUES(?,?,?,?)').run(feedback.id, graph.graphId, 'pending', JSON.stringify(feedback));
       this.db.prepare('INSERT INTO submissions(session_id,feedback_id) VALUES(?,?)').run(sessionId, feedback.id);
       draft.submittedVersion = draft.version; draft.version++; draft.state = 'submitted'; draft.token = review.token; draft.feedbackId = feedback.id; draft.work.graph = after;
@@ -371,6 +400,6 @@ export class GraphStore {
     this.readSession(sessionId);
     if (!Number.isSafeInteger(after) || after < 0) throw new GraphError('VALIDATION_FAILED', 'after must be a nonnegative safe integer');
     const row = this.db.prepare("SELECT s.cursor,f.payload FROM submissions s JOIN feedback f ON f.id=s.feedback_id WHERE s.session_id=? AND s.cursor>? AND f.status='pending' ORDER BY s.cursor LIMIT 1").get(sessionId, after) as { cursor: number; payload: string } | undefined;
-    return row ? { cursor: row.cursor, feedback: JSON.parse(row.payload) as Feedback } : null;
+    return row ? { cursor: row.cursor, feedback: restoreFeedback(JSON.parse(row.payload) as Feedback) } : null;
   }
 }

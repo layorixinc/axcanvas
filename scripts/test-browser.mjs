@@ -12,6 +12,7 @@ import { verifyFitCenter } from '../tests/fit.browser.mjs';
 import { verifyMinimap } from '../tests/minimap.browser.mjs';
 import { verifyEnglishDefaults } from '../tests/english.browser.mjs';
 import { verifyReviewedAuthoring } from '../tests/review.browser.mjs';
+import { verifyScopedFlows } from '../tests/flows.browser.mjs';
 
 const dir = await mkdtemp(join(tmpdir(), 'axcanvas-browser-'));
 const resultsDir = resolve('test-results');
@@ -27,6 +28,8 @@ try {
   await page.screenshot({ path: join(resultsDir, 'english-default.png'), fullPage: true });
   const reviewed = await verifyReviewedAuthoring(page, app.url);
   await page.screenshot({ path: join(resultsDir, 'reviewed-authoring.png'), fullPage: true });
+  const flows = await verifyScopedFlows(page, app.url);
+  await page.screenshot({ path: join(resultsDir, 'scoped-flows.png'), fullPage: true });
   const layout = await verifyLayoutWorkflow(page, app.url);
   await page.reload(); await page.waitForSelector('.graph-node');
   const selection = await verifyCanvasSelection(page);
@@ -39,7 +42,7 @@ try {
   assert.deepEqual(pageErrors, [], 'Browser must not emit uncaught JavaScript errors');
   await mkdir(resultsDir, { recursive: true });
   await page.screenshot({ path: join(resultsDir, 'browser.png'), fullPage: true });
-  console.log(JSON.stringify({ english, reviewed, layout, selection, focus, pan, fit, minimap }, null, 2));
+  console.log(JSON.stringify({ english, reviewed, flows, layout, selection, focus, pan, fit, minimap }, null, 2));
 } catch (error) {
   if (page && !page.isClosed()) {
     await mkdir(resultsDir, { recursive: true });
