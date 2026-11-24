@@ -55,4 +55,53 @@ export type Feedback = {
   id: string; sessionId: string; graphRevision: number; nodeIds: string[]; note: string; strokes: Stroke[];
   status: 'pending' | 'applied' | 'needs_clarification' | 'rejected'; resolution: string;
   createdAt: string; capture: Graph;
+  review?: Review;
 };
+
+export const graphViewSchema = z.object({
+  sessionId: z.string(), title: z.string(), revision: z.number().int().nonnegative(),
+  nodes: z.array(nodeSchema), edges: z.array(edgeSchema), positions: z.record(id, positionSchema),
+  layoutRevision: z.number().int().nonnegative(), routes: z.record(id, routeSchema),
+  layoutDirection: z.enum(['RIGHT', 'DOWN']).nullable()
+}).strict();
+export type GraphView = z.infer<typeof graphViewSchema>;
+export const strokeSchema = z.object({ points: z.array(positionSchema).min(2).max(2000) }).strict();
+export const changeSchema = z.object({
+  entity: z.enum(['node', 'edge', 'position', 'layout', 'instruction']), id,
+  change: z.enum(['added', 'modified', 'retired', 'removed']),
+  before: z.unknown().nullable(), after: z.unknown().nullable()
+}).strict();
+export type ReviewChange = z.infer<typeof changeSchema>;
+export const reviewSchema = z.object({
+  draftId: id, baseRevision: z.number().int().nonnegative(), baseLayoutRevision: z.number().int().nonnegative(),
+  changes: z.array(changeSchema), before: graphViewSchema, after: graphViewSchema
+}).strict();
+export type Review = z.infer<typeof reviewSchema>;
+export const draftOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('node'), node: nodeSchema, position: positionSchema.optional() }).strict(),
+  z.object({ type: z.literal('edge'), edge: edgeSchema }).strict(),
+  z.object({ type: z.literal('retire_node'), nodeId: id }).strict(),
+  z.object({ type: z.literal('retire_edge'), edgeId: id }).strict(),
+  z.object({ type: z.literal('move'), nodeId: id, position: positionSchema }).strict(),
+  z.object({ type: z.literal('layout'), positions: z.record(id, positionSchema), routes: z.record(id, routeSchema), direction: z.enum(['RIGHT', 'DOWN']).nullable() }).strict(),
+  z.object({ type: z.literal('instruction'), note: z.string().max(10000), strokes: z.array(strokeSchema).max(100), nodeIds: z.array(id).max(300) }).strict()
+]);
+export type DraftOperation = z.infer<typeof draftOperationSchema>;
+export const draftIdSchema = z.object({ draftId: id }).strict();
+export const draftVersionSchema = draftIdSchema.extend({ baseDraftVersion: z.number().int().nonnegative() }).strict();
+export const draftRebaseSchema = draftVersionSchema.extend({
+  baseRevision: z.number().int().nonnegative(), baseLayoutRevision: z.number().int().nonnegative(),
+  resolution: z.enum(['fail', 'draft', 'latest'])
+}).strict();
+export const draftViewSchema = z.object({
+  id, sessionId: z.string(), version: z.number().int().nonnegative(), state: z.enum(['editing', 'submitted', 'discarded']),
+  baseRevision: z.number().int().nonnegative(), baseLayoutRevision: z.number().int().nonnegative(),
+  graph: graphViewSchema, note: z.string(), strokes: z.array(strokeSchema), nodeIds: z.array(id),
+  canUndo: z.boolean(), canRedo: z.boolean()
+}).strict();
+export type DraftView = z.infer<typeof draftViewSchema>;
+export const draftReviewSchema = z.object({
+  draftId: id, version: z.number().int().nonnegative(), token: z.string(), changes: z.array(changeSchema),
+  baseRevision: z.number().int().nonnegative(), baseLayoutRevision: z.number().int().nonnegative(),
+  conflict: z.boolean(), canSubmit: z.boolean()
+}).strict();

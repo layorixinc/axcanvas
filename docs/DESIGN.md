@@ -28,7 +28,8 @@ An agent controls a local or explicitly trusted-LAN canvas without extra plugins
 - Raw SQLite/internal errors are logged to stderr rather than exposed to clients.
 
 ## Human collaboration and language
-The canvas opens a session URL and stores only a browser-local list of recently opened sessions. People inspect/edit/move nodes and explicitly submit selected node IDs, notes and pen strokes. Feedback preserves graphRevision, coordinates and a graph snapshot. It does not inject messages into a running CLI; agents read pending feedback before responding.
+The canvas stores a browser-owned draft pointer and a recent-session list locally; full drafts and bounded checkpoints live in SQLite. Humans create/edit/retire nodes and directed relations, stage layout, notes and strokes, then inspect a version-bound before/after review. Only final Submit atomically publishes graph/layout changes and creates one immutable pending packet. Drawings retain their captured coordinate frame. Canonical conflicts preserve the draft and require inspected rebase/resolution.
+The common Node watcher silently waits through empty HTTP responses and returns once for a committed reviewed submission. It does not execute content or acknowledge delivery. Native background completion is the integration boundary; automatic continuation is not guaranteed across every agent. See REVIEW-WORKFLOW.md.
 
 All application-owned text and public documentation default to English. User-authored titles, labels, details, relationships, sources and feedback remain in their original language. History times use en-US formatting with the local time zone. See ENGLISH-DEFAULT.md.
 

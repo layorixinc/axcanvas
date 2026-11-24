@@ -4,7 +4,7 @@ import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { GraphStore, GraphError } from './store.ts';
-import { AgentAPI, errorResponse, sessionIdSchema } from './agent.ts';
+import { AgentAPI, errorResponse, sessionIdSchema, publicFeedback } from './agent.ts';
 import { feedbackImage } from './feedback-image.ts';
 
 const assets: Record<string, [string, string]> = {
@@ -15,7 +15,8 @@ const assets: Record<string, [string, string]> = {
   '/vendor/elk-api.js': ['../node_modules/elkjs/lib/elk-api.js', 'text/javascript; charset=utf-8'],
   '/vendor/elk-worker.js': ['../node_modules/elkjs/lib/elk-worker.min.js', 'text/javascript; charset=utf-8'],
   '/third-party-notices.txt': ['../THIRD-PARTY-NOTICES.txt', 'text/plain; charset=utf-8'],
-  '/licenses/elkjs.txt': ['../licenses/ELKjs-LICENSE.txt', 'text/plain; charset=utf-8']
+  '/licenses/elkjs.txt': ['../licenses/ELKjs-LICENSE.txt', 'text/plain; charset=utf-8'],
+  '/watch.mjs': ['../scripts/watch.mjs', 'text/javascript; charset=utf-8']
 };
 function json(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -41,9 +42,21 @@ export async function startServer(options: ServerOptions = {}) {
   const publicUrl = options.publicUrl ? new URL(options.publicUrl) : undefined;
   if (publicUrl && (!['http:', 'https:'].includes(publicUrl.protocol) || publicUrl.username || publicUrl.password || publicUrl.pathname !== '/' || publicUrl.search || publicUrl.hash)) { store.close(); throw new Error('AXCANVAS_PUBLIC_URL must be an HTTP(S) origin without path or credentials'); }
   const streams = new Map<ServerResponse, string>();
+  const waiters = new Map<string, { res: ServerResponse; after: number; timer: ReturnType<typeof setTimeout> }>();
+  function finishWait(sessionId: string, status: number, payload: unknown) {
+    const waiter = waiters.get(sessionId); if (!waiter) return;
+    waiters.delete(sessionId); clearTimeout(waiter.timer);
+    if (!waiter.res.destroyed) json(waiter.res, status, payload);
+  }
+  function deliverSubmission(sessionId: string) {
+    const waiter = waiters.get(sessionId); if (!waiter) return;
+    const next = store.nextSubmission(sessionId, waiter.after);
+    if (next) finishWait(sessionId, 200, { cursor: next.cursor, feedback: publicFeedback(next.feedback, publicUrl?.origin ?? `http://${waiter.res.req.headers.host}`) });
+  }
   store.onChange = graphId => {
     const sessionId = store.read(graphId).sessionId;
     for (const [res, subscribed] of streams) if (subscribed === sessionId && !res.destroyed) res.write(`data: ${JSON.stringify({ sessionId })}\n\n`);
+    deliverSubmission(sessionId);
   };
   const addresses = new Set(['127.0.0.1', 'localhost', ...(options.allowedHosts ?? [])]);
   for (const list of Object.values(networkInterfaces())) for (const item of list ?? []) if (item.family === 'IPv4') addresses.add(item.address);
@@ -69,6 +82,22 @@ export async function startServer(options: ServerOptions = {}) {
       if (req.method === 'GET' && url.pathname === '/health') { json(res, 200, { service: 'axcanvas', status: 'pass', apiVersion: '1' }); return; }
       if (req.method === 'GET' && url.pathname === '/agents.md') { res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(api.guide(baseUrl)); return; }
       if (req.method === 'GET' && url.pathname === '/openapi.json') { json(res, 200, api.openapi(baseUrl)); return; }
+      if (req.method === 'GET' && (url.pathname === '/api/submissions/wait' || url.pathname === '/api/submissions/status')) {
+        const sessionId = sessionIdSchema.parse(url.searchParams.get('sessionId'));
+        store.readSession(sessionId);
+        if (url.pathname.endsWith('/status')) { json(res, 200, { connected: waiters.has(sessionId) }); return; }
+        const afterText = url.searchParams.get('after') ?? '0', timeoutText = url.searchParams.get('timeoutMs') ?? '25000';
+        const after = Number(afterText), timeoutMs = Number(timeoutText);
+        if (!/^\d+$/.test(afterText) || !Number.isSafeInteger(after) || !/^\d+$/.test(timeoutText) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 25000) throw new GraphError('INVALID_REQUEST', 'after must be a nonnegative safe integer and timeoutMs must be 1..25000');
+        if (waiters.has(sessionId)) {
+          const error = errorResponse('WATCHER_BUSY', 'One watcher is already waiting for this session', { sessionId }, { recovery: { retryable: false, action: 'stop_duplicate_watcher', instructions: 'Keep one background watcher per session. Stop the existing watcher before starting another.' } });
+          json(res, 409, error.body); return;
+        }
+        const timer = setTimeout(() => finishWait(sessionId, 200, { cursor: after, feedback: null }), timeoutMs);
+        timer.unref(); waiters.set(sessionId, { res, after, timer });
+        res.on('close', () => { if (waiters.get(sessionId)?.res === res) { clearTimeout(timer); waiters.delete(sessionId); } });
+        deliverSubmission(sessionId); return;
+      }
       if (req.method === 'GET' && url.pathname === '/api/events') {
         const sessionId = sessionIdSchema.parse(url.searchParams.get('sessionId'));
         store.readSession(sessionId);
@@ -110,6 +139,7 @@ export async function startServer(options: ServerOptions = {}) {
   let closed = false;
   return { server, store, url, close: async () => {
     if (closed) return; closed = true; clearInterval(heartbeat);
+    for (const sessionId of [...waiters.keys()]) finishWait(sessionId, 503, { error: 'Server is stopping; pending submissions remain saved' });
     for (const res of streams.keys()) res.end();
     server.closeIdleConnections();
     const stopped = Promise.withResolvers<void>(); server.close(error => error ? stopped.reject(error) : stopped.resolve());

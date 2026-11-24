@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add durable human drafts, node/relationship creation and editing, retirement, persistent Undo/Redo, full before/after review and atomic final submission.
+- Add inspected three-way rebase with explicit conflict resolution, immutable submitted packets and captured drawing-frame protection.
+- Add one common dependency-free Node watcher: draft saves remain silent, final reviewed Submit completes one background command, and delivery never acknowledges processing.
+- Change human node saves and layout application from immediate canonical writes to draft-local changes. Existing agent graph tools remain available.
+- Add backend, real-process watcher and actual browser coverage for the complete workflow.
+
 - Default application text, accessibility labels and public documentation to English without translating user graph or feedback content.
 - Format history times in English while retaining the local time zone.
 - Add Korean-locale/multilingual browser coverage and keep the minimap clear of canvas controls at narrow and medium widths.

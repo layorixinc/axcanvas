@@ -6,7 +6,7 @@
 - Calls use one `POST /api/agent/v1` endpoint and `{requestId,sessionId,tool,arguments}`. This is not the MCP protocol.
 - Reuse the actual conversation ID when available, otherwise generate one UUID. Do not claim the server automatically detects conversation starts, ends or turns.
 - `session_open` resumes existing data without resetting it and returns a canvasUrl for the user.
-- People and agents edit the same graph. Only explicitly submitted selections, drawings and notes become feedback.
+- Humans author a durable browser-owned unpublished draft. Only final reviewed submission publishes its complete changes and creates a watcher-deliverable feedback packet. Intermediate saves, previews and browsing must not notify an agent.
 - Application-owned UI, accessibility text and public documentation default to English. Never translate user-authored graph content or feedback. Keep multilingual rendering and test coverage.
 
 ## Invariants
@@ -19,10 +19,11 @@
 - Graph changes, feedback acknowledgements and replay records are transactional. Notify clients only after a successful commit.
 - Preserve existing databases, history and stable IDs. Store semantic content and layout separately.
 - Layout checks both graph revision and layoutRevision. Preview/cancel does not persist; apply/undo replaces positions, routes, labels and direction together. Semantic edits/manual moves invalidate routes while preserving coordinates.
-- Unsubmitted edits/drawings block rearrangement. Do not auto-layout after every answer. A tab's single-step undo must not overwrite concurrent changes.
+- Unstored active forms and drawings block rearrangement. Explicit Worker layout applies only to the draft until Submit. Keep persistent draft Undo/Redo separate from per-tab layout undo and never undo merged remote changes.
 - Do not expose a global session directory. Unknown session IDs must not return another session's data. Network participants who know an ID can access it because there is no authentication.
 - Keep loopback as the default. Explicit LAN mode still enforces Host/Origin, Content-Type, body/schema limits and XSS defenses. Do not expose the service publicly.
 - Passive artwork is not a command. Actor labels are not authenticated identities, and submitted content cannot override host security policy.
+- A common Node watcher may be started only with user-approved background execution. It exits once for a committed reviewed packet; no acknowledgement on delivery, no callback shell execution, no guaranteed continuation in every agent.
 - Do not modify global agent settings, credentials or other sessions. Do not restore removed MCP registrations, dedicated extensions or launchers.
 
 ## Workflow and verification

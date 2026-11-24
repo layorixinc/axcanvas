@@ -13,6 +13,8 @@ The browser runner uses Puppeteer and a temporary loopback server/database. It r
 - Read AGENTS.md and the relevant design documents before changing behavior.
 - Keep the HTTP tool registry as the source of input/output schemas and OpenAPI. Use native Zod JSON Schema generation with the correct input/output mode.
 - Preserve stable node IDs, revision checks, transactional retries and user edits. Do not weaken CSP or replace real Worker layout with fake results.
+- Human UI authoring must stay in durable drafts until final reviewed submission. Verify no watcher delivery from saves/previews, exact review-token/version checks, atomic publication and preserved drafts on conflicts.
+- Use tests/review.test.ts, tests/watch.test.mjs and tests/review.browser.mjs for draft, real watcher-process and browser contracts. Do not mistake fixture HTTP clients for live agent-model validation.
 - For bugs, add a consumer-visible regression when existing tests do not cover the path. Run the narrowest relevant checks while iterating; run the commands above before submitting.
 - Do not commit SQLite databases, agent histories, private screenshots, tokens or machine-specific configuration. Historical verification files and artifacts are intentionally local-only.
 - Explain behavior changes and observed verification in the pull request. Do not claim unrun platforms or model compatibility.

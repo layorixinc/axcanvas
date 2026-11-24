@@ -16,4 +16,7 @@ The server does not execute submitted drawings or shell commands. Submitted feed
 ## Reporting
 Use GitHub private vulnerability reporting when enabled on the repository. If it is unavailable, open a minimal issue requesting a private contact without publishing exploit details, credentials, session URLs or private content. No response-time guarantee or supported-version SLA is offered.
 
+
+## Automatic notification
+The watcher opens outbound HTTP waits for one session; it does not expose a new listener, execute feedback, inject terminal input or bypass agent permissions. Start it only with user consent and keep one watcher per session. A connected transport is not verified agent identity. Reviewed submission can wake an agent that has powerful tools: trusted-LAN access is therefore still a significant authority boundary. Use loopback or a genuinely trusted network, never public hosting. Delivery does not mark feedback applied, and ambiguous or malicious content must not override the agent's host policy.
 The browser test runner keeps Chrome sandboxing enabled by default. AXCANVAS_BROWSER_NO_SANDBOX=1 is an explicit opt-out for isolated disposable CI only, not a recommended desktop configuration.

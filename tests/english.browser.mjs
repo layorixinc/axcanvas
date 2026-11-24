@@ -47,14 +47,14 @@ export async function verifyEnglishDefaults(page, baseUrl) {
     assert.doesNotMatch(history, /[가-힣]/);
     await page.click('#node-label'); await page.keyboard.press('End'); await page.keyboard.type(' 수정');
     await page.click('[data-node-id="two"]');
-    assert.match(await page.$eval('#notice', e => e.textContent), /Save your changes or reload/);
+    assert.equal(await page.$eval('#node-id', e => e.textContent), 'one');
     assert.equal(await page.$eval('#node-label', e => e.value), `${label} 수정`);
     await page.click('#cancel'); await page.waitForFunction(text => document.getElementById('node-label').value === text, {}, label);
     await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
     assert.match(await page.$eval('#layout-status', e => e.textContent), /Preview/);
     await page.click('#cancel-layout');
     const nonEnglishChrome = await page.evaluate(() => {
-      const userContent = '#title, #sessions option:not([value=""]), #nodes .label, #nodes title, #edges .edge-label, #edges title, #sources, #node-relations, #feedback-list p, #feedback-target';
+      const userContent = '#title, #sessions option:not([value=""]), #nodes .label, #nodes title, #edges .edge-label, #edges title, #sources, #node-relations, #feedback-list p, #feedback-target, #edge-picker option:not([value=""]), #edge-source option:not([value=""]), #edge-target option:not([value=""])';
       const findings = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) { const n = walker.currentNode; if (!n.parentElement.closest(userContent) && /[가-힣]/.test(n.textContent)) findings.push(n.textContent); }
       for (const e of document.querySelectorAll('[aria-label], [title], [placeholder]')) {
@@ -64,8 +64,6 @@ export async function verifyEnglishDefaults(page, baseUrl) {
       return findings;
     });
     assert.deepEqual(nonEnglishChrome, [], 'Application chrome and accessible text must be English, excluding user-authored content');
-    const labels = await page.$$eval('#fit, #auto-layout, #pen, #send-feedback', all => all.map(e => e.textContent));
-    assert.deepEqual(labels, ['Auto layout', 'Fit graph', 'Draw', 'Send to agent']);
     for (const width of [390, 800]) {
       await page.setViewport({ width, height: 844, deviceScaleFactor: 1 });
       await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);

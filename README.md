@@ -29,7 +29,7 @@ For development and browser tests, use `npm ci` without `--omit=dev`.
 
 Ask your existing agent:
 
-> Read http://127.0.0.1:43821/agents.md and use its HTTP tools to write this conversation as a knowledge graph. Reuse one stable sessionId, show me the returned canvasUrl, and read the latest graph and pending feedback before each update.
+> Read http://127.0.0.1:43821/agents.md and use its HTTP tools to write this conversation as a knowledge graph. Reuse one stable sessionId and show me its canvasUrl. With my approval, run the documented one-shot watcher as a background command. Read submitted review packets and the latest canonical graph before responding; acknowledge only after processing.
 
 Use the agent's conversation ID if it is available; otherwise generate a UUID once and reuse it. Resume with the same sessionId or canvas link.
 
@@ -37,11 +37,12 @@ Use the agent's conversation ID if it is available; otherwise generate a UUID on
 
 1. Keep the server running and open the local URL.
 2. Send the prompt above to an agent that can make HTTP requests. The agent should create a session, submit graph content and give you its canvas link.
-3. Open that link. If nodes are not arranged yet, choose **Auto layout**, inspect the preview and click **Apply**.
-4. Edit a node or draw an annotation, add a note and click **Send to agent**. Ask the agent to read the pending feedback; submission does not automatically wake or interrupt it.
-5. Keep the session link when resuming the conversation. The recent-session list belongs to the current browser, not a server-wide directory.
+3. Open that link. Use **Add node**, **Connect nodes**, node/relationship editors and **Save to draft** to author changes. The canonical graph remains unchanged while you edit.
+4. Optionally preview **Auto layout** and apply it to the draft. Add notes or a drawing, then choose **Review changes**. Inspect the complete before/after list and return to editing if needed.
+5. Click **Submit to agent** only when the whole work is ready. This atomically publishes the reviewed graph/layout and queues one immutable packet. Intermediate saves and opening the review do not notify a watcher.
+6. A connected one-shot watcher completes after final Submit. Without a watcher, the submission stays pending until the agent reads it. Keep your session link when resuming; recent-session and draft pointers belong to the browser, not a global session directory.
 
-A newly opened session is empty until the first `graph_commit`. You can try the HTTP example below without connecting an agent.
+A new session starts empty. You can author its first node in the UI, ask an agent to send graph_commit, or use the HTTP example below. Server-backed draft changes and bounded Undo/Redo history survive reload; active form text must be saved or included by Review changes before leaving the page.
 
 This is **HTTP tool calling, not the MCP protocol**. The server does not automatically collect a conversation, detect turns, interrupt a running CLI or force an agent to call the API. Whether an agent follows the guide depends on that agent and its available HTTP tools.
 
@@ -116,6 +117,7 @@ Tools:
 - `tools_list`, `session_open`
 - `graph_read`, `graph_commit`, `graph_edit`, `graph_layout`, `graph_history`
 - `feedback_submit`, `feedback_read`, `feedback_ack`
+- `draft_open`, `draft_read`, `draft_change`, `draft_step`, `draft_rebase`, `draft_review`, `draft_submit`, `draft_discard`
 
 `tools_list` may omit sessionId; other tools require it. sessionId is 1–128 letters, digits, hyphens or underscores, starting with a letter or digit. The returned `canvasUrl` opens that session.
 
@@ -125,19 +127,38 @@ Errors return a non-2xx HTTP status, `isError:true`, readable `content`, `fieldE
 
 ## Canvas controls
 
-- Click a node to read details, sources and relationships, or edit its label, detail and status.
-- Drag nodes to move them. Drag with the **middle mouse button** to pan, including over nodes and in drawing mode. Wheel zooms; **Fit graph** fits the full graph.
-- **Auto layout** previews RIGHT/DOWN layout in a native Web Worker. Apply explicitly, or cancel without saving. **Undo layout** restores the current tab's last applied layout. Unsubmitted edits/drawings block rearrangement.
-- **Focus connections** is off by default. **Ctrl+node click** focuses the node and its neighbors; ordinary node selection clears focus. Ctrl+Enter/Space works for keyboard selection.
-- The **minimap** shows the graph and current viewport. Click to center, drag the viewport to pan, use arrow keys/Home, or collapse it.
-- **Draw** creates annotations. Submit selected nodes, strokes and a note with **Send to agent**. Passive artwork is not an agent command.
-- Feedback stays pending until acknowledged. Agents can include feedbackIds in graph_commit to atomically apply a graph change and acknowledge feedback. If a drawing is ambiguous or unsupported, ask rather than pretend it was understood.
+- **Add node** creates a node at an explicit or visible-center position without relocating existing nodes. Edit its type, label, details and status; **Save to draft** stages it.
+- **Connect nodes** creates a directed relationship. Choose or edit an existing relationship, reverse its direction, change its label, or retire it. Self-loops and parallel relations are supported.
+- **Retire node** preserves existing history and retires incident links. Removing an unsubmitted new node removes it from the final delta instead of publishing a phantom deletion.
+- Drag nodes to stage positions. Middle-drag pans, including over nodes and in drawing mode. Wheel zooms; **Fit graph** includes the complete graph.
+- **Auto layout** uses a native same-origin Worker. Preview/cancel writes nothing; Apply and Undo layout affect only the draft. Saved draft Undo/Redo is separate and survives reload.
+- **Focus connections** is off by default. Ctrl+node click focuses neighbors; ordinary selection clears focus. The minimap supports click/drag, arrow keys, Home and collapse.
+- Notes and **Draw** strokes are stored in the draft. Clear drawings before changing their coordinate frame; semantic-only rebases preserve them.
+- **Review changes** includes unsaved valid active forms rather than silently omitting them. Inspect before/after values, layout, notes, strokes and the final snapshot. Final **Submit to agent** is version-checked and replay-safe.
+- On a canonical conflict, the draft is retained. **Inspect latest / rebase** shows the latest data; merge nonconflicting changes or explicitly choose draft/latest for conflicts, then review again. Rebase resets old-base Undo history so undo cannot erase remote work.
+- Feedback remains pending after delivery. Agents use feedback_read and graph_commit.feedbackIds, or feedback_ack with an explanation, only after processing. Ambiguous drawings require clarification, not invented interpretation.
 
 Layout changes do not change semantic revisions. Semantic edits or manual node movement invalidate old routes while preserving node coordinates. Layout does not verify the truth of claims or sources, and answers are not automatically rearranged after every turn.
 
+## Automatic notification without an agent-specific plugin
+
+Run the same Node.js command using your agent's native **background shell task** capability, not as a blocking foreground tool:
+
+```sh
+node scripts/watch.mjs --url http://127.0.0.1:43821 --session YOUR_SESSION_ID --after 0
+```
+
+The watcher needs Node >=24.16 on its execution machine, no npm dependencies of its own, and permission to reach the server. From another project, use the absolute path to this repository's script. `/watch.mjs` serves the same source for inspection; do not blindly execute downloaded service code.
+
+It waits silently through empty HTTP long polls. Draft saves, node moves, ordinary graph updates and simple legacy feedback_submit calls do not finish it. One **reviewed submission** produces one JSON line containing feedbackId and a durable cursor, then exits successfully. The agent's own background-completion mechanism delivers that result; there is no shell keystroke injection or agent-specific SDK.
+
+After handling the packet, rearm with `--after` set to its cursor. Stopping the agent can stop its watcher. `--timeout-ms` sets an optional overall deadline; timeout/cancellation fails rather than reporting empty success. Keep only one watcher per session. `Watcher connected` means an HTTP wait is connected, not that a model read or applied anything.
+
+The shared transport is implemented; automatic continuation remains subject to the agent's version, permissions and background-task policy. The application does not bypass tool approvals, interrupt a CLI or impersonate user/system messages. See [review and watcher design](docs/REVIEW-WORKFLOW.md).
+
 ## Data and backups
 
-SQLite WAL stores graph history, layout, successful mutation replay results and submitted feedback snapshots. Only agent-submitted graph content is stored; raw conversations are not collected automatically.
+SQLite WAL stores canonical graphs/history, durable drafts and bounded checkpoints, immutable reviewed submissions, replay results and submitted feedback snapshots. The browser stores only draft/session pointers. Raw conversations are not collected automatically.
 
 Stop the server before manually copying/deleting the database and its WAL/SHM files, or use SQLite-consistent backups. Back up before resetting data. Existing databases are preserved; publishing the repository does not require deleting local work.
 
@@ -149,10 +170,10 @@ Stop the server before manually copying/deleting the database and its WAL/SHM fi
 | --- | --- |
 | Startup fails or `node:sqlite` is unavailable | Run `node --version`; use Node.js 24.16 or newer, then install from the repository root. |
 | Port 43821 is already in use | Stop your other axcanvas process or choose another `AXCANVAS_PORT`. Use the same port in the browser and agent URL. |
-| The canvas is empty | `session_open` creates no example nodes. The agent or HTTP client must send `graph_commit`; open the returned session URL. |
+| The canvas is empty | Create a node in the UI or have the agent send graph_commit; session_open does not create example content. |
 | The agent cannot reach the server | Test `/health` from the agent's own environment. Its localhost may refer to another machine, container or sandbox. Enable trusted-LAN mode only when needed. |
-| Drawing feedback is still pending | Ask the agent to read feedback for the same sessionId. There is no automatic CLI interruption or background model call. |
-| A save returns a revision conflict | Reload/read the latest graph, reconcile your edits and submit with current revisions. Copy unsaved text before reloading. |
+| A watcher has not returned | Save alone is not Submit. Open Review changes, resolve conflicts and use final Submit to agent. Check the same session ID and the Watcher connected indicator. |
+| A draft save conflicts | Inspect the saved draft/latest canonical graph and reconcile versions. Do not discard or overwrite someone else's input automatically. |
 
 For LAN access, verify the server address, explicit bind setting and narrow firewall rule. Do not solve connection problems by exposing the port publicly. See [SECURITY.md](SECURITY.md).
 
@@ -165,7 +186,7 @@ npm run test:browser
 npm audit --omit=dev
 ```
 
-The browser runner installs/uses Puppeteer's matching Chrome, creates an isolated temporary database on an ephemeral loopback port and runs actual editing, drawing, layout, focus and minimap workflows. It does not use your live service, LLM credentials or paid model calls. Screenshots go to ignored `test-results/`.
+The browser runner uses matching Chrome, temporary databases and ephemeral loopback ports. It exercises complete authoring/review/rebase/submission, real drawing and feedback acknowledgement, native layout, English/multilingual content, focus, pan and minimap. Watcher tests launch the actual common script as a child process. No live user data, LLM credentials or paid model calls are needed; screenshots are ignored under test-results/.
 
 For a preinstalled browser, set `PUPPETEER_EXECUTABLE_PATH`. To skip browser downloads for server/core-only work, set `PUPPETEER_SKIP_DOWNLOAD=true` before installation. The test-only `AXCANVAS_BROWSER_NO_SANDBOX=1` opt-out is reserved for disposable CI; keep sandboxing enabled on your computer.
 

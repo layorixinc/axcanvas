@@ -1,15 +1,15 @@
 # Automatic layout design
 
 ## Workflow
-Choose Left → right or Top → bottom, run Auto layout, wait for the Worker, then inspect a preview and Apply or Cancel. Apply is one HTTP mutation; positions, routes and labels survive reload. Undo restores this tab's most recent applied layout. Closing the tab clears undo memory, not semantic history.
+Choose Left → right or Top → bottom, run Auto layout, then inspect a preview and Apply or Cancel. Apply saves positions/routes/labels to the durable draft, not the canonical graph. Undo layout restores this tab's most recent applied draft layout; persistent draft Undo/Redo is separate. Final reviewed Submit publishes the graph/layout together.
 
 ## Invariants
 - Never auto-layout after every answer or change semantic nodes, relationships, sources or feedback.
 - Use ELKjs 0.12.1 layered/ORTHOGONAL with 340×150 nodes and font-measured shortened relationship labels. Render returned section start/bend/end points and label boxes.
 - Exclude retired nodes/edges from layout input. Handle cycles, parallel edges, self-loops and disconnected nodes while retaining source/target identities.
 - Calculate in a real same-origin Worker. Bind job ID, sessionId and graph/layout revisions; discard late results. Preserve existing layout on failure, with no fake fallback success.
-- Preview writes nothing. Cancel restores the previous camera and layout. Apply/undo checks both baseRevision and baseLayoutRevision.
-- Unsubmitted drawings, instructions or node edits block layout. Computing/preview blocks node editing/moving, drawing and session changes, but keeps pan/zoom available.
+- Preview writes nothing. Cancel restores the previous camera and layout. Draft Apply/undo uses optimistic draft versions; final Submit checks both canonical graph and layout revisions.
+- Unstored active forms and drawings block rearrangement. Saved draft text/graph changes may be explicitly laid out. Computing/preview blocks editing, moving, drawing and session changes while preserving pan/zoom.
 - A manual node move invalidates every stored route because it may obstruct unrelated edges. Preserve coordinates and require explicit layout to reroute.
 - Semantic commits invalidate routes while preserving coordinates. Clearing routes increments layoutRevision. Re-reading invalidates stale previews and undo.
 - Never silently display obsolete routes for changed data. Unrouted edges use basic connections until the user requests layout.
@@ -17,7 +17,7 @@ Choose Left → right or Top → bottom, run Auto layout, wait for the Worker, t
 ## Contract and storage
 Graph includes routes and layoutDirection. A route has sections: Position[][] and label: {x,y,width,height,text}. Direction is RIGHT, DOWN or null.
 
-graph_layout input: baseRevision, baseLayoutRevision, mode (move/replace), positions, routes (default {}) and direction (default null).
+Agents can still use canonical graph_layout with baseRevision, baseLayoutRevision, mode (move/replace), positions, routes and direction. Human layout uses draft_change with operation.type=layout and is published only by draft_submit.
 - move merges supplied positions, clears routes and keeps the existing direction.
 - replace exactly replaces positions/routes/direction, including empty maps for undo.
 - Validate node/edge IDs, active status, finite coordinates and positive label dimensions. Failures/conflicts apply nothing.
