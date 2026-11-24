@@ -65,7 +65,7 @@ export async function verifyCompactWorkspace(page, baseUrl) {
   await page.click('#cancel');await action('#draft-undo','draft_step');await page.waitForFunction(()=>document.getElementById('node-label').value==='Alpha');cases.push('native-ime-commit-and-input-local-undo');
 
   await page.click('#inspector-toggle');await page.click('#fit');await page.click('#tool-select');const beforeMarquee=(await readDraft()).version;
-  const box=await page.evaluate(()=>{const a=document.querySelector('#nodes [data-node-id="a"]').getBoundingClientRect(),b=document.querySelector('#nodes [data-node-id="b"]').getBoundingClientRect();return{x:Math.min(a.left,b.left)-8,y:Math.max(a.bottom,b.bottom)+8,right:Math.max(a.right,b.right)+8,top:Math.min(a.top,b.top)-8};});
+  const box=await page.evaluate(()=>{const a=document.querySelector('#nodes [data-node-id="a"]').getBoundingClientRect(),b=document.querySelector('#nodes [data-node-id="b"]').getBoundingClientRect(),tools=document.getElementById('toolbox').getBoundingClientRect();return{x:Math.min(a.left,b.left)-8,y:Math.max(a.bottom,b.bottom,tools.bottom)+8,right:Math.max(a.right,b.right)+8,top:Math.min(a.top,b.top)-8};});
   await page.mouse.move(box.x,box.y);await page.mouse.down();await page.mouse.move(box.right,box.top,{steps:8});await page.mouse.up();assert.equal(await page.$$eval('#nodes .graph-node.selected',nodes=>nodes.length),2);assert.equal((await readDraft()).version,beforeMarquee);await showPanel(page);cases.push('marquee-selection-is-view-only');
 
   await selectMany(['a','b']);const beforeMove=(await readDraft()).graph.flowLayouts.topic?.positions ?? canonical.positions;

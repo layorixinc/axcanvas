@@ -20,7 +20,7 @@ let placementKind = 'concept';
 let workspace, saveError = '', deliveryState = '', composing = false, propertyTimer, editSession = null, propertySave = Promise.resolve();
 const toolHints = { select: 'Select · Shift-click or drag to select several nodes', hand: 'Hand · Drag to pan', node: 'Add node · Click to place, then save', connect: 'Connect · Choose source and target, or drag a handle', draw: 'Draw · Annotate this scope', erase: 'Erase · Drag across whole annotation strokes' };
 function refreshWorkspace() {
-  workspace?.refresh({ selectionCount: selection.size, hasSelection: selection.size > 0, toolHint: toolHints[tool],
+  workspace?.refresh({ selectionCount: selection.size, hasSelection: selection.size > 0, toolHint: toolHints[tool], canCenter: canCenterSelection(),
     saveState: pending ? 'Saving…' : saveError ? 'Save failed' : hasUnsaved() ? 'Unsaved input' : draft ? 'Saved to draft' : 'No draft',
     saveError, connectionState: `${$('connection').textContent} · ${$('watcher-status').textContent}${deliveryState ? ` · ${deliveryState}` : ''}`,
     zoomPercent: Math.round(1500 / camera.w * 100), conflict: draftConflict });
@@ -230,6 +230,33 @@ function fit() {
   const w = Math.max(width, height * ratio), h = Math.max(height, width / ratio);
   camera = { x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h }; view();
 }
+function canCenterSelection() {
+  return !!(graph && selection.size && !layoutJob && !layoutSaving && !reviewBusy && !dragging && !gesture && !connector && !minimapDrag &&
+    !document.querySelector('dialog[open]') && $('canvas').clientWidth > 0 && $('canvas').clientHeight > 0 &&
+    activeNodes().some(node => selection.has(node.id)));
+}
+async function centerSelection() {
+  if (!canCenterSelection()) return;
+  if (workspace.revealCanvas()) await new Promise(requestAnimationFrame);
+  if (!canCenterSelection()) return;
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const node of activeNodes()) if (selection.has(node.id)) {
+    const p = point(node);
+    left = Math.min(left, p.x); top = Math.min(top, p.y);
+    right = Math.max(right, p.x + 340); bottom = Math.max(bottom, p.y + 150);
+  }
+  const canvas = $('canvas'), frame = canvas.getBoundingClientRect(), tools = $('toolbox').getBoundingClientRect();
+  let usableLeft = frame.left, usableTop = frame.top;
+  if ($('toolbox').getAttribute('aria-orientation') === 'horizontal') usableTop = Math.max(usableTop, tools.bottom + 8);
+  else usableLeft = Math.max(usableLeft, tools.right + 8);
+  if (usableLeft >= frame.right || usableTop >= frame.bottom) return;
+  const matrix = canvas.getScreenCTM(); if (!matrix) return;
+  const center = new DOMPoint((left + right) / 2, (top + bottom) / 2).matrixTransform(matrix);
+  const dx = center.x - (usableLeft + frame.right) / 2, dy = center.y - (usableTop + frame.bottom) / 2, inverse = matrix.inverse();
+  camera.x += inverse.a * dx + inverse.c * dy;
+  camera.y += inverse.b * dx + inverse.d * dy;
+  view();
+}
 function drawMinimap(nodes = activeNodes()) {
   minimapBounds = geometryBounds(nodes);
   $('minimap-panel').hidden = !minimapBounds;
@@ -298,7 +325,7 @@ $('minimap-toggle').onclick = () => {
   $('minimap-toggle').textContent = collapsed ? 'Expand' : 'Collapse';
 };
 if (matchMedia('(max-width: 850px)').matches) { $('minimap').setAttribute('hidden', ''); $('minimap-toggle').setAttribute('aria-expanded', 'false'); $('minimap-toggle').textContent = 'Expand'; }
-new ResizeObserver(updateMinimapView).observe($('canvas'));
+new ResizeObserver(() => { updateMinimapView(); refreshWorkspace(); }).observe($('canvas'));
 function wrap(text, max = 21) {
   const lines = []; let rest = text;
   while (rest.length && lines.length < 3) { lines.push(rest.slice(0, max)); rest = rest.slice(max); }
@@ -438,6 +465,7 @@ function startPan(e) {
   dragging = { camera: { ...camera }, clientX: e.clientX, clientY: e.clientY, pointerId: e.pointerId, scaleX: inverse.a, scaleY: inverse.d };
   $('canvas').classList.add('panning');
   $('canvas').setPointerCapture(e.pointerId);
+  refreshWorkspace();
 }
 $('canvas').addEventListener('pointermove', e => {
   if (!dragging || (dragging.pointerId !== undefined && dragging.pointerId !== e.pointerId)) return;
@@ -487,14 +515,15 @@ $('canvas').addEventListener('pointerdown', e => {
     if (hasUnsaved()) { notice('Save or discard active forms before drawing.'); return; }
     if (!strokes.length) captureFlowId = activeFlowId;
     const p = screenPoint(e), stroke = { points: [{ x: Math.round(p.x), y: Math.round(p.y) }] };
-    strokes.push(stroke); dragging = { ink: true, stroke, pointerId: e.pointerId }; $('canvas').setPointerCapture(e.pointerId); return;
+    strokes.push(stroke); dragging = { ink: true, stroke, pointerId: e.pointerId }; $('canvas').setPointerCapture(e.pointerId); refreshWorkspace(); return;
   }
-  if (tool === 'erase') { gesture = { kind: 'erase', original: structuredClone(strokes), changed: false }; eraseAt(screenPoint(e)); $('canvas').setPointerCapture(e.pointerId); return; }
+  if (tool === 'erase') { gesture = { kind: 'erase', original: structuredClone(strokes), changed: false }; eraseAt(screenPoint(e)); $('canvas').setPointerCapture(e.pointerId); refreshWorkspace(); return; }
   if (tool !== 'select' || e.target.closest('.graph-node,.graph-edge')) return;
   if (hasUnsaved()) { prepareSwitch().catch(saveFailure); return; }
   const start = screenPoint(e); gesture = { kind: 'marquee', start, point: start, prior: e.shiftKey ? new Set(selection) : new Set() };
   if (!e.shiftKey) select(null, true, false);
   $('canvas').setPointerCapture(e.pointerId);
+  refreshWorkspace();
 });
 function zoom(factor) { const w = Math.min(20000, Math.max(350, camera.w * factor)), ratio = w / camera.w; camera.x += (camera.w - w) / 2; camera.y += (camera.h - camera.h * ratio) / 2; camera.w = w; camera.h *= ratio; view(); }
 $('canvas').addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.1 : .9); }, { passive: false });
@@ -921,6 +950,7 @@ function nodePointerDown(e, node) {
   const origins = Object.fromEntries(activeNodes().filter(n => selection.has(n.id)).map(n => [n.id, { ...point(n) }]));
   dragging = { id: node.id, flowId: activeFlowId, start: screenPoint(e), origins, positions: structuredClone(origins), moved: false, pointerId: e.pointerId };
   $('canvas').setPointerCapture(e.pointerId);
+  refreshWorkspace();
 }
 function beginConnector(e, source, drag = true) {
   if (pending || hasUnsaved() || layoutLocked() || strokes.length) { notice('Save forms and clear or submit drawings before connecting nodes.'); return; }
@@ -1009,6 +1039,7 @@ async function pasteSelection() {
   selection = new Set(ids.values()); select([...selection].at(-1), true, false, true);
 }
 async function dispatchCommand(command) {
+  if (command === 'center-selection') { await centerSelection(); return; }
   if (command.startsWith('node-kind:')) {
     const kind = command.slice('node-kind:'.length);
     if (Object.hasOwn(names, kind)) { placementKind = kind; if (newNode) { $('node-type').value = kind; dirty = true; layoutControls(); } }
@@ -1077,6 +1108,7 @@ document.addEventListener('keydown', event => {
     return;
   }
   if (event.altKey) return;
+  if (key === 'f' && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); centerSelection(); return; }
   if (event.code === 'Space') { if (event.target.closest?.('button')) return; event.preventDefault(); if (!spaceTool) { spaceTool = tool; workspace.setTool('hand'); } return; }
   if (key === 'escape') { event.preventDefault(); cancelGesture(); return; }
   if (event.key.startsWith('Arrow') && selection.size) { event.preventDefault(); dispatchCommand(`nudge:${event.key}:${event.shiftKey ? 10 : 1}`).catch(saveFailure); return; }
@@ -1088,13 +1120,15 @@ document.addEventListener('keyup', event => { if (event.code === 'Space') releas
 window.addEventListener('blur', releaseSpace);
 $('canvas').addEventListener('contextmenu', event => {
   event.preventDefault(); $('canvas-context-menu')?.remove();
-  if (hasUnsaved()) { notice('Save or discard active input before selection commands.'); return; }
+  const clean = !hasUnsaved();
   const id = event.target.closest('[data-node-id]')?.dataset.nodeId;
-  if (id && !selection.has(id)) select(id, true);
+  if (clean && id && !selection.has(id)) select(id, true);
   const menu = document.createElement('div'); menu.id = 'canvas-context-menu'; menu.setAttribute('role', 'menu');
   Object.assign(menu.style, { position: 'fixed', left: `${Math.min(event.clientX, innerWidth - 210)}px`, top: `${Math.min(event.clientY, innerHeight - 320)}px`, zIndex: '100', background: '#17212f', padding: '8px', border: '1px solid #8aabff', display: 'grid' });
-  for (const [command, text] of [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']]) {
-    const button = document.createElement('button'); button.textContent = text; button.setAttribute('role', 'menuitem');
+  const commands = [['center-selection', 'Center selection'], ...(clean ? [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']] : [])];
+  for (const [command, text] of commands) {
+    const button = document.createElement('button'); button.textContent = text; button.setAttribute('role', 'menuitem'); button.dataset.command = command;
+    if (command === 'center-selection') button.disabled = !canCenterSelection();
     button.onclick = () => { menu.remove(); dispatchCommand(command).catch(saveFailure); }; menu.append(button);
   }
   document.body.append(menu); menu.firstElementChild.focus();

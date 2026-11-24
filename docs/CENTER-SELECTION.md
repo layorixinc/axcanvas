@@ -1,6 +1,6 @@
 # Center selection navigation
 
-Status: design only. No runtime controls or camera behavior are changed by this proposal.
+Status: implemented. Center selection is a camera-only navigation command; existing Fit and editing modes remain unchanged.
 
 ## Decision
 
@@ -10,11 +10,11 @@ Existing **Fit** continues to fit the whole current flow, potentially changing z
 
 ## Placement and access
 
-- Primary location: the upper command toolbar, immediately after View, using a target/crosshair SVG icon. This keeps selection navigation discoverable without extending the bottom status/zoom cluster. Do not add a second persistent copy beside Fit.
+- Primary location: the left toolbox, immediately below Hand, using a target/crosshair SVG icon. On narrow screens it stays in the same relative order in the horizontal toolbox. Do not add a persistent copy to the upper toolbar or bottom Fit cluster.
 - Accessible name/tooltip: `Center selection (F)`; use a real button with native disabled state and the workspace's normal desktop/touch target sizes.
 - Alternate access: View → Center selection and the node/selection context menu. These dispatch the same command, not separate implementations.
 - Shortcut: F while the canvas has keyboard context. Ignore inputs, textareas, selects, editable content, IME composition, modal dialogs, modifier shortcuts and minimap keyboard handling.
-- This is a one-shot toolbar action, not a left-toolbox editing mode. Clicking Center does not change Select/Hand/Draw/Erase or the selection; do not show an active/pressed mode state. On narrow screens keep it reachable in the existing View menu if the toolbar cannot fit its normal touch target, without wrapping into an additional row.
+- This is a one-shot toolbox action, not an editing mode: no data-tool or pressed state. Clicking Center preserves Select/Hand/Draw/Erase and the selection. Include the action in enabled-button keyboard traversal without activating another tool.
 - Do not automatically center on every node click. Keep the existing spatial stability during selection, dragging and multi-selection.
 
 ## Target and camera semantics
@@ -29,6 +29,8 @@ Existing **Fit** continues to fit the whole current flow, potentially changing z
 For a target center `(cx, cy)` and camera dimensions `(w, h)`, set only camera origin `(x, y)` so that the target maps to the intended canvas viewport center. Keep `w` and `h` unchanged. Account for SVG aspect-ratio mapping rather than assuming DOM pixels equal world coordinates.
 
 Use the canvas content rectangle, not the whole browser window: the desktop Inspector is outside it. Account for the left toolbox or narrow top tray as navigation insets, without treating the corner minimap as a full-width sidebar. The center target must remain unobstructed. If an open narrow-screen Inspector drawer leaves too little usable canvas, this explicit command closes the drawer before measuring/centering; desktop Inspector state is unchanged. Do not close a modal dialog or discard form input.
+Reserve the overlapping toolbox strip plus an 8 CSS-pixel gap on its left/top edge; center in the remaining canvas rectangle. Node bounds are 340 × 150 world units, excluding connector handles. Use the canvas screen CTM/inverse to translate screen-center displacement into camera-origin displacement without changing camera dimensions.
+Keep the horizontal toolbox pointer-accessible above the narrow Inspector drawer, including at 390px width.
 
 ## Allowed states and safety
 
@@ -58,4 +60,9 @@ Use the canvas content rectangle, not the whole browser window: the desktop Insp
 7. On a clean settled draft, compare graph/layout data, draft version, Undo/Redo and mutation/watcher traffic before/after: all remain unchanged. Minimap camera viewport follows the pan.
 8. Live verification uses the real control on an existing graph, without moving nodes or injecting page state. Report measured centering and zoom preservation.
 
-This planning-only change does not rerun application tests or imply the feature is already available.
+## Observed verification
+
+- `npm run test:browser` passed, including nine dedicated centering cases and the existing editing, English-default, review, scoped-flow, layout, selection, focus, pan, Fit and minimap workflows.
+- Centering coverage includes single/multiple selections, negative/scoped/fallback positions, RIGHT/DOWN Worker previews, F keyboard context, invalid input, captured drawings, modal eligibility, View/context-menu access and 800px/390px drawers.
+- On an existing live graph, the actual toolbox button centered the selected node with 0 CSS-pixel horizontal/vertical error at 178% zoom. Hand mode, graph/layout data, draft version and feedback were unchanged; the page emitted no API request during centering.
+- Changed browser modules pass Node syntax checks. Screenshots and live proof remain in ignored artifacts; no additional model session or GitHub CI run is claimed.

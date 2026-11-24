@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Center selection below Hand in the toolbox, with F and View/context-menu access. Preserve zoom, tools, scoped geometry and draft state while navigating; support preview positions and mobile Inspector dismissal.
+
 - Replace stacked editing panels with a compact two-row workspace, accessible SVG toolbox, contextual Inspector tabs/drawer and consolidated status.
 - Add direct node placement/connector gestures, selection marquee, scoped group moves, nudging, alignment/distribution and identity-safe Copy/Paste/Duplicate.
 - Add annotation-only stroke erasing, temporary Space Hand, contextual keyboard controls and input-local Undo/IME safeguards.

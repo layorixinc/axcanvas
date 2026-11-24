@@ -25,6 +25,13 @@ export function initWorkspace(callbacks = {}) {
   const inspectorToggle = byId('inspector-toggle');
   const toolbox = byId('toolbox');
   const toolButtons = [...toolbox.querySelectorAll('[data-tool]')];
+  const navigationButtons = [...toolbox.querySelectorAll('button')];
+  for (const id of ['tool-center-selection', 'view-center-selection']) {
+    byId(id).addEventListener('pointerdown', event => {
+      if (event.button === 0 && document.activeElement?.matches('input,textarea,select,[contenteditable="true"]')) event.preventDefault();
+    });
+    byId(id).addEventListener('click', () => callbacks.onCommand?.('center-selection'));
+  }
   const tabs = ['properties', 'agent', 'history'];
   const narrow = window.matchMedia('(max-width: 850px)');
   let tool = 'select';
@@ -199,22 +206,24 @@ export function initWorkspace(callbacks = {}) {
     renderToolOptions();
     byId('tool-hint').textContent = TOOL_LABELS[tool];
   }
-  for (const [index, button] of toolButtons.entries()) {
+  for (const button of toolButtons) {
     button.addEventListener('click', () => {
       if (callbacks.onTool) callbacks.onTool(button.dataset.tool);
       else setTool(button.dataset.tool);
     });
+  }
+  for (const button of navigationButtons) {
     button.addEventListener('keydown', event => {
       if (event.isComposing) return;
+      const enabled = navigationButtons.filter(item => !item.disabled), index = enabled.indexOf(button);
       let next;
-      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % toolButtons.length;
-      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index + toolButtons.length - 1) % toolButtons.length;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % enabled.length;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index + enabled.length - 1) % enabled.length;
       else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = toolButtons.length - 1;
+      else if (event.key === 'End') next = enabled.length - 1;
       else return;
-      event.preventDefault();
-      event.stopPropagation();
-      toolButtons[next].focus();
+      event.preventDefault(); event.stopPropagation();
+      enabled[next]?.focus();
     });
   }
   for (const [command, pathData] of Object.entries(COMMAND_ICONS)) {
@@ -231,6 +240,7 @@ export function initWorkspace(callbacks = {}) {
   }
 
   function refresh(state = {}) {
+    if (state.canCenter !== undefined) for (const id of ['tool-center-selection', 'view-center-selection']) byId(id).disabled = !state.canCenter;
     if (state.selectionCount !== undefined || state.hasSelection !== undefined) {
       selectionCount = state.selectionCount ?? (state.hasSelection ? 1 : 0);
       byId('selection-summary').textContent = selectionCount ? `${selectionCount} selected` : 'No selection';
@@ -262,5 +272,5 @@ export function initWorkspace(callbacks = {}) {
   }
   setTool('select');
   refresh({ selectionCount: 0 });
-  return { setTool, getTool: () => tool, showPanel, refresh };
+  return { setTool, getTool: () => tool, showPanel, refresh, revealCanvas() { if (!narrow.matches || drawer.hidden) return false; setInspector(false); return true; } };
 }

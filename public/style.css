@@ -167,7 +167,7 @@ dialog .actions{position:sticky;bottom:-24px;padding:16px 0;background:var(--pan
 }
 @media(max-width:850px){
   #workspace-main{grid-template-columns:minmax(0,1fr)}
-  #inspector-drawer{position:absolute;right:0;top:0;bottom:0;width:300px;max-width:calc(100% - 48px);box-shadow:-12px 0 30px #0007}
+  #inspector-drawer{position:absolute;right:0;top:68px;bottom:0;width:300px;max-width:calc(100% - 48px);box-shadow:-12px 0 30px #0007}
   #toolbox{flex-direction:row;top:8px;left:8px}
   button,.icon-button{min-height:44px}
   .icon-button{width:44px;min-width:44px}
