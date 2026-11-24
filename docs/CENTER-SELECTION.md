@@ -8,6 +8,16 @@ Add one view-navigation command, **Center selection**, rather than another editi
 
 Existing **Fit** continues to fit the whole current flow, potentially changing zoom. Center selection does not call Fit or rearrange nodes.
 
+## Usage
+
+1. Select a visible node, or use Shift+click to select several nodes.
+2. Click the target icon directly below Hand. Alternatively, choose **View → Center selection**, use the selected node's context menu, or press **F** with keyboard focus on the canvas/toolbox.
+3. Continue editing with the same tool and zoom. For a multi-selection, the command centers its bounding box; use **Fit** instead when you want to fit the entire current flow.
+
+Without a visible selection the button is disabled. It is also unavailable during active gestures, layout computation/application and modal review/rebase. F typed into a property field, note or minimap does not pan the canvas.
+
+On narrow screens, the horizontal toolbox stays above the Inspector drawer. Activating Center selection closes that drawer to expose the canvas without discarding its form input. On desktop, the Inspector stays as it was.
+
 ## Placement and access
 
 - Primary location: the left toolbox, immediately below Hand, using a target/crosshair SVG icon. On narrow screens it stays in the same relative order in the horizontal toolbox. Do not add a persistent copy to the upper toolbar or bottom Fit cluster.

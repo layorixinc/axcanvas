@@ -153,7 +153,7 @@ Existing databases default to no flows; historical memberships are never invente
 ## Canvas controls
 
 - The compact document row holds **File**, the document title, durable Undo/Redo, the Inspector toggle and one **Review changes** command. **Scope** stays visible; **Arrange**, **View** and drawing options use menus rather than permanent explanatory panels.
-- The icon toolbox provides **Select (V)**, **Hand (H)**, **Add node (N)**, **Connect (C)**, **Draw (P)** and **Erase (E)**. Tooltips and accessible names identify every icon. Hold Space temporarily or middle-drag to pan; wheel zoom and status-bar Fit/zoom controls remain available.
+- The icon toolbox provides **Select (V)**, **Hand (H)**, **Center selection (F)**, **Add node (N)**, **Connect (C)**, **Draw (P)** and **Erase (E)**. Tooltips and accessible names identify every icon. Hold Space temporarily or middle-drag to pan; wheel zoom and status-bar Fit/zoom controls remain available.
 - The target icon immediately below **Hand** is **Center selection (F)**. It pans the selected node—or a multi-selection's bounding box—to the unobstructed canvas center without changing zoom, the active tool, node positions or the draft. It is a one-shot action, not another editing mode. View/context menus offer the same command; it remains available with drawings or incomplete form input.
 - **Add node**: activate the tool, click its canvas position, complete the Properties form and explicitly save. Existing nodes stay in place. **Connect**: choose source and target, or drag a connector handle; label and save the relationship. Escape cancels unfinished gestures. Self-links and parallel relations are supported.
 - Valid existing-object properties autosave to the durable draft. One continuous object edit is one Undo action; new objects still require explicit creation. Invalid input stays editable. Input fields retain native text Undo and IME behavior; Ctrl/Cmd+S saves to the draft, never to the agent.
@@ -169,7 +169,7 @@ Existing databases default to no flows; historical memberships are never invente
 
 Layout changes do not change semantic revisions. Semantic edits or manual node movement invalidate old routes while preserving node coordinates. Layout does not verify the truth of claims or sources, and answers are not automatically rearranged after every turn.
 
-See the [compact workspace design](docs/COMPACT-WORKSPACE.md) for interaction and accessibility contracts.
+See the [compact workspace design](docs/COMPACT-WORKSPACE.md) for interaction and accessibility contracts, and [Center selection usage](docs/CENTER-SELECTION.md#usage) for navigation shortcuts, disabled states and narrow-screen behavior.
 
 ## Automatic notification without an agent-specific plugin
 
