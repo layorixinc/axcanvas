@@ -15,6 +15,7 @@ import { verifyReviewedAuthoring } from '../tests/review.browser.mjs';
 import { verifyScopedFlows } from '../tests/flows.browser.mjs';
 import { verifyCompactWorkspace } from '../tests/workspace.browser.mjs';
 import { verifyCenterSelection } from '../tests/center-selection.browser.mjs';
+import { verifyGraphSearch } from '../tests/search.browser.mjs';
 
 const dir = await mkdtemp(join(tmpdir(), 'axcanvas-browser-'));
 const resultsDir = resolve('test-results');
@@ -25,6 +26,10 @@ try {
   page = await browser.newPage();
   const pageErrors = [];
   page.on('pageerror', error => { pageErrors.push(error.message); console.error('BROWSER_ERROR', error.stack ?? error); });
+  const search = await verifyGraphSearch(page, app.url);
+  await mkdir(resultsDir, { recursive: true });
+  await page.screenshot({ path: join(resultsDir, 'graph-search.png'), fullPage: true });
+  await page.click('#graph-search-close');
   const centering = await verifyCenterSelection(page, app.url);
   const workspace = await verifyCompactWorkspace(page, app.url);
   await mkdir(resultsDir, { recursive: true });
@@ -48,7 +53,7 @@ try {
   assert.deepEqual(pageErrors, [], 'Browser must not emit uncaught JavaScript errors');
   await mkdir(resultsDir, { recursive: true });
   await page.screenshot({ path: join(resultsDir, 'browser.png'), fullPage: true });
-  console.log(JSON.stringify({ centering, workspace, english, reviewed, flows, layout, selection, focus, pan, fit, minimap }, null, 2));
+  console.log(JSON.stringify({ search, centering, workspace, english, reviewed, flows, layout, selection, focus, pan, fit, minimap }, null, 2));
 } catch (error) {
   console.error(error.stack ?? error);
   if (page && !page.isClosed()) {

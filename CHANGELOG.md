@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add indexed graph search with ranked multi-field literal matching, Unicode normalization, scope/type filters, visible match highlights, keyboard navigation and zoom-preserving result selection. Preserve drafts and captured drawing frames; document Graphify research and matching limitations.
+
 - Add Center selection below Hand in the toolbox, with F and View/context-menu access. Preserve zoom, tools, scoped geometry and draft state while navigating; support preview positions and mobile Inspector dismissal.
 
 - Replace stacked editing panels with a compact two-row workspace, accessible SVG toolbox, contextual Inspector tabs/drawer and consolidated status.

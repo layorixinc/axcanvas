@@ -2,6 +2,7 @@ import '/vendor/elk-api.js';
 import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 import { flowView, boundaryRoles } from '/flows.js';
 import { initWorkspace } from '/workspace.js';
+import { initGraphSearch } from '/search.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -18,12 +19,14 @@ let activeFlowId = null, captureFlowId = null, flowEditing = null, flowDirty = f
 let tool = 'select', spaceTool = null, selection = new Set(), clipboard = null, connector = null, gesture = null;
 let placementKind = 'concept';
 let workspace, saveError = '', deliveryState = '', composing = false, propertyTimer, editSession = null, propertySave = Promise.resolve();
+let graphSearch;
 const toolHints = { select: 'Select · Shift-click or drag to select several nodes', hand: 'Hand · Drag to pan', node: 'Add node · Click to place, then save', connect: 'Connect · Choose source and target, or drag a handle', draw: 'Draw · Annotate this scope', erase: 'Erase · Drag across whole annotation strokes' };
 function refreshWorkspace() {
   workspace?.refresh({ selectionCount: selection.size, hasSelection: selection.size > 0, toolHint: toolHints[tool], canCenter: canCenterSelection(),
     saveState: pending ? 'Saving…' : saveError ? 'Save failed' : hasUnsaved() ? 'Unsaved input' : draft ? 'Saved to draft' : 'No draft',
     saveError, connectionState: `${$('connection').textContent} · ${$('watcher-status').textContent}${deliveryState ? ` · ${deliveryState}` : ''}`,
     zoomPercent: Math.round(1500 / camera.w * 100), conflict: draftConflict });
+  graphSearch?.refresh();
 }
 function closeEditSession() { clearTimeout(propertyTimer); editSession = null; }
 function editGroup(target) { if (editSession?.target !== target) editSession = { target, id: newId() }; return editSession.id; }
@@ -256,6 +259,25 @@ async function centerSelection() {
   camera.x += inverse.a * dx + inverse.c * dy;
   camera.y += inverse.b * dx + inverse.d * dy;
   view();
+}
+
+function searchNavigationBlock() {
+  if (hasUnsaved() || composing || newNode || flowEditing || edgeEditing && !graph?.edges.some(edge => edge.id === edgeEditing.id)) return 'Save or discard the active form before navigating. You can still search.';
+  if (pending || layoutJob || layoutSaving || reviewBusy || dragging || gesture || connector || document.querySelector('dialog[open]')) return 'Finish the current gesture, save or dialog before navigating.';
+  return '';
+}
+async function navigateSearchNode(id) {
+  const blocked = searchNavigationBlock(); if (blocked) throw new Error(blocked);
+  const node = graph?.nodes.find(node => node.id === id);
+  if (!node || node.status === 'retired' && !$('show-retired').checked) throw new Error('This result is no longer available. Search again.');
+  if (!activeNodes().some(node => node.id === id)) {
+    if (strokes.length || layoutPreview) throw new Error('Clear or submit the captured drawing, or finish the layout preview, before navigating outside this scope.');
+    activeFlowId = null; layoutUndo = null; review = null; edgeEditing = null;
+    renderFlowSelector(); renderEdgePicker();
+  }
+  closeEditSession(); select(id, true, false);
+  await centerSelection(); $('canvas').focus({ preventScroll: true });
+  return true;
 }
 function drawMinimap(nodes = activeNodes()) {
   minimapBounds = geometryBounds(nodes);
@@ -1138,5 +1160,6 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') $('c
 window.addEventListener('beforeunload', event => { if (pending || hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
 setInterval(watcherStatus, 5000);
 workspace = initWorkspace({ onTool: setTool, onCommand: command => dispatchCommand(command).catch(saveFailure), onPanel: tab => { if (tab === 'history' && graph) loadHistory().catch(saveFailure); } });
+graphSearch = initGraphSearch({ getState: () => ({ graph, nodes: activeNodes(), flowId: activeFlowId, includeRetired: $('show-retired').checked, blocked: searchNavigationBlock() }), navigate: navigateSearchNode });
 layoutControls();
 refresh().catch(e => notice(e.message));
