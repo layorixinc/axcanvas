@@ -1,11 +1,13 @@
 # Relationship focus and minimap design
 
+Usage: [Navigation](USER-GUIDE.md#navigate-without-changing-the-document). The minimap summarizes the current scope, not every other flow's independent view.
+
 ## Relationship focus
 Off by default. Ctrl+node click, or Ctrl+Enter/Space, focuses the selected node and its neighbors. Ordinary selection clears focus. Internal refresh/select calls preserve the mode. Keep dirty-edit selection protection and the checkbox as an alternative explicit control.
 
 ## Minimap
-- Show the complete graph and current viewport in the bottom-right corner of the same canvas.
-- At narrow and medium viewport widths, place the minimap above the floating canvas controls so longer English labels remain reachable.
+- Show current-scope graph geometry and the viewport in the bottom-right corner of the same canvas.
+- At narrow/medium widths, keep the minimap clear of working controls; the compact shell puts Fit/zoom in the bottom status bar. The minimap starts collapsed on narrow screens.
 - Summarize visible nodes and routes without node details or relationship text. Indicate the selected node.
 - Compute the visible world rectangle from the actual SVG screen-to-world transform, including mismatched viewport/viewBox ratios.
 - Map bounds are the union of graph geometry and viewport, so distant panning still shows the current location.

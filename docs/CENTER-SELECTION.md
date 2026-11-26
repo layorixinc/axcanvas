@@ -2,6 +2,8 @@
 
 Status: implemented. Center selection is a camera-only navigation command; existing Fit and editing modes remain unchanged.
 
+For task-oriented navigation and a keyboard table, see the [user guide](USER-GUIDE.md#navigate-without-changing-the-document). Saved geometry and UI camera state are distinguished in [Layout data](LAYOUT-DATA.md#coordinates-and-line-shapes).
+
 ## Decision
 
 Add one view-navigation command, **Center selection**, rather than another editing mode. It pans the active canvas so the selected node's center is at the visible viewport center, keeping the current zoom. The application uses an SVG camera/viewBox, not a scrollable document; `scrollIntoView()` is not the implementation.

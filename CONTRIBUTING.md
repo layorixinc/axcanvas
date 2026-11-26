@@ -11,9 +11,10 @@ npm run test:browser
 The browser runner uses Puppeteer and a temporary loopback server/database. It requires no running axcanvas instance, agent account or LLM API key. npm installs its matching Chrome; an existing executable may be selected with PUPPETEER_EXECUTABLE_PATH. Browser screenshots are written under ignored test-results/.
 
 - Read AGENTS.md and the relevant design documents before changing behavior.
+- Documentation entry points: README.md for installation, docs/USER-GUIDE.md for tasks, docs/LAYOUT-DATA.md for geometry, docs/DESIGN.md for architecture. The live /agents.md is generated in src/agent.ts, not copied from AGENTS.md. Keep runtime instructions, descriptor text and actual schemas aligned.
 - Keep the HTTP tool registry as the source of input/output schemas and OpenAPI. Use native Zod JSON Schema generation with the correct input/output mode.
 - Preserve stable node IDs, revision checks, transactional retries and user edits. Do not weaken CSP or replace real Worker layout with fake results.
-- Human UI authoring must stay in durable drafts until final reviewed submission. Verify no watcher delivery from saves/previews, exact review-token/version checks, atomic publication and preserved drafts on conflicts.
+- Human UI authoring must stay in durable drafts until final reviewed submission. Verify no watcher delivery from saves or opening Review, exact review-token/version checks, atomic publication and preserved drafts on conflicts. Layout completion saves immediately to a draft; there is no layout preview/Apply step.
 - Use tests/review.test.ts, tests/watch.test.mjs and tests/review.browser.mjs for draft, real watcher-process and browser contracts. Do not mistake fixture HTTP clients for live agent-model validation.
 - For bugs, add a consumer-visible regression when existing tests do not cover the path. Run the narrowest relevant checks while iterating; run the commands above before submitting.
 - Do not commit SQLite databases, agent histories, private screenshots, tokens or machine-specific configuration. Historical verification files and artifacts are intentionally local-only.

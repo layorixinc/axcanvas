@@ -1,18 +1,30 @@
 # axcanvas
 
-**An agent-neutral knowledge canvas.** Agents write answers as nodes and relationships through a local HTTP API; people edit the same graph, draw annotations and submit feedback.
+**An agent-neutral knowledge canvas.** Agents write nodes and relationships through ordinary HTTP; people edit the graph, arrange it, annotate it and submit one reviewed packet.
 
-Experimental software. No authentication. Local use by default; explicitly trusted LANs only when enabled. **Do not expose the server to the internet.**
+**Experimental. No authentication.** Loopback by default; explicitly trusted LANs only. Do not expose this service to the internet. Session IDs separate documents, not permissions.
 
-The interface and public documentation default to English. User-authored graph content and feedback retain their original language; no agent plugin, MCP/WebMCP server or skill installation is required.
+The interface and documentation use English. Your graph content and instructions keep their original language. No MCP/WebMCP server, agent plugin or skill installation is required.
 
-![English-default workflow in the real axcanvas UI](docs/images/english-default-workflow.png)
+## Start here
 
-The screenshot documents the English-default implementation. It is an example graph, not a claim that conversations are captured or translated automatically.
+| I want to… | Read |
+| --- | --- |
+| Install and connect an agent | [Quick start](#quick-start) |
+| Learn the workspace, editing and submission | [User guide](docs/USER-GUIDE.md) |
+| Find commands and keyboard shortcuts | [Workspace map](docs/USER-GUIDE.md#2-find-your-way-around) · [Keyboard reference](docs/USER-GUIDE.md#keyboard-reference) |
+| Understand saved coordinates, line shapes and AI delivery | [Layout data](docs/LAYOUT-DATA.md) |
+| Call the API or integrate an agent | [HTTP example](#http-api) · live `/agents.md` · [Architecture](docs/DESIGN.md) |
+| Share safely, back up or troubleshoot | [LAN configuration](#lan-and-configuration) · [Data and recovery](#data-and-recovery) |
+| Contribute or report a security issue | [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |
+
+![Example graph in the real axcanvas UI](docs/images/english-default-workflow.png)
+
+This is an earlier example screenshot, not a complete picture of the current toolbar or evidence of automatic conversation capture.
 
 ## Quick start
 
-Requirements: **Node.js >=24.16**, npm and Git. Clone the repository and start the local server:
+Requirements: **Node.js >=24.16**, npm and Git. Run from the repository root:
 
 ```sh
 git clone https://github.com/layorixinc/axcanvas.git
@@ -21,36 +33,31 @@ npm ci --omit=dev
 npm start
 ```
 
-Open **http://127.0.0.1:43821**. The default listener is loopback, not all network interfaces. Runtime data is stored in `.axcanvas/graph.sqlite`.
+Open **http://127.0.0.1:43821** and keep the server running. A new session is empty, not a preloaded conversation. Data is stored in `.axcanvas/graph.sqlite` by default. For development/browser tests, install with `npm ci` without `--omit=dev`.
 
-For development and browser tests, use `npm ci` without `--omit=dev`.
+### Connect an agent
 
-## Connect an agent
+Give an agent with HTTP access this prompt:
 
-Ask your existing agent:
+> Read http://127.0.0.1:43821/agents.md and use its HTTP tools to maintain this conversation as a knowledge graph. Reuse one stable sessionId, preserve existing IDs and human edits, and show me the canvasUrl. Before each answer, read graph_read and feedback_read. Start the documented one-shot watcher only with my approval, using your native background-command mechanism. Acknowledge submitted feedback only after processing.
 
-> Read http://127.0.0.1:43821/agents.md and use its HTTP tools to write this conversation as a knowledge graph. Reuse one stable sessionId and show me its canvasUrl. With my approval, run the documented one-shot watcher as a background command. Read submitted review packets and the latest canonical graph before responding; acknowledge only after processing.
+Use the actual conversation ID when available; otherwise generate a UUID once and reuse it. Keep the returned canvas link when resuming. An agent on another machine/container needs the server's reachable address, not its own localhost.
 
-Use the agent's conversation ID if it is available; otherwise generate a UUID once and reuse it. Resume with the same sessionId or canvas link.
+The server does **not** collect transcripts, detect turns, interrupt a CLI or force an agent to call the API. Automatic continuation depends on the agent's available tools and background-task policy.
 
-### Your first graph
+### The everyday workflow
 
-1. Keep the server running and open the local URL.
-2. Send the prompt above to an agent that can make HTTP requests. The agent should create a session, submit graph content and give you its canvas link.
-3. Open that link. Use **Add node**, **Connect nodes**, node/relationship editors and **Save to draft** to author changes. The canonical graph remains unchanged while you edit.
-4. Optionally run **Auto layout**; its completed result saves directly to the draft. Use **Undo layout** if needed. Add notes or a drawing, then choose **Review changes**. Inspect the complete before/after list and return to editing if needed.
-5. Click **Submit to agent** only when the whole work is ready. This atomically publishes the reviewed graph/layout and queues one immutable packet. Intermediate saves and opening the review do not notify a watcher.
-6. A connected one-shot watcher completes after final Submit. Without a watcher, the submission stays pending until the agent reads it. Keep your session link when resuming; recent-session and draft pointers belong to the browser, not a global session directory.
+1. Open the canvas link. Select a node to edit **Properties**, or use **Add node / Connect** to create content.
+2. Existing valid fields autosave to a **durable draft**. New objects require an explicit save. Check the bottom save state.
+3. Choose **Scope**, then optionally **Arrange → Auto layout** or **Layout selected + connected**. Completion saves directly to the draft; there is no Apply step.
+4. Add instructions in **Inspector → Agent** or draw annotations. Choose **Review changes** to inspect the complete work.
+5. Choose **Submit to agent** to publish once and queue one immutable packet. Saving or opening Review does not notify the watcher.
 
-A new session starts empty. You can author its first node in the UI, ask an agent to send graph_commit, or use the HTTP example below. Server-backed draft changes and bounded Undo/Redo history survive reload; active form text must be saved or included by Review changes before leaving the page.
+**Saved to draft ≠ submitted ≠ applied by an agent.** See the [step-by-step user guide](docs/USER-GUIDE.md) for selection, search, tag colors, START/END roles, Undo, conflicts and resuming.
 
-This is **HTTP tool calling, not the MCP protocol**. The server does not automatically collect a conversation, detect turns, interrupt a running CLI or force an agent to call the API. Whether an agent follows the guide depends on that agent and its available HTTP tools.
+## LAN and configuration
 
-An agent on another machine needs explicit LAN mode and the server's reachable address, not its own localhost.
-
-## Enable LAN sharing
-
-Only on a network whose participants you trust:
+Only enable LAN access on a network whose participants you trust:
 
 ```sh
 # macOS / Linux
@@ -63,27 +70,25 @@ $env:AXCANVAS_HOST = "0.0.0.0"
 npm start
 ```
 
-Use the server computer's LAN IPv4 address on port 43821. Restrict the firewall to the intended local subnet. Do not disable the firewall or enable router port forwarding.
-
-**Anyone with network access and a sessionId can read and modify that session.** Session IDs separate data; they are not authentication. There is no global session directory, and `actor` is only an informational label. See [SECURITY.md](SECURITY.md).
-
-### Configuration
+Use the server computer's LAN IPv4 address on port 43821. Restrict firewall access to the intended subnet; do not disable the firewall, enable router port forwarding or use a public tunnel. Anyone with network access and the session ID can read/write it. See [SECURITY.md](SECURITY.md).
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `AXCANVAS_HOST` | `127.0.0.1` | `0.0.0.0` explicitly enables LAN access |
+| `AXCANVAS_HOST` | `127.0.0.1` | Supported binds: loopback or explicit `0.0.0.0` |
 | `AXCANVAS_PORT` | `43821` | Listener port |
-| `AXCANVAS_DB` | `.axcanvas/graph.sqlite` | SQLite database path |
-| `AXCANVAS_PUBLIC_URL` | Accepted request origin | Origin returned in links; no path, credentials, query or fragment |
-| `AXCANVAS_ALLOWED_HOSTS` | Local interface addresses and localhost | Additional internal DNS hostnames, comma-separated |
+| `AXCANVAS_DB` | `.axcanvas/graph.sqlite` | Database path, relative to the server working directory unless absolute |
+| `AXCANVAS_PUBLIC_URL` | Accepted request origin | Origin used in returned links; no credentials, path, query or fragment |
+| `AXCANVAS_ALLOWED_HOSTS` | Local IPv4 addresses, loopback and localhost | Additional internal hostnames, comma-separated |
 
-The server does not load `.env` automatically. Set environment variables in your shell or process manager. Host/Origin checks, JSON Content-Type validation, a 1MiB request limit and CSP remain active in LAN mode; they do not replace authentication.
+The server does not load `.env` automatically or terminate TLS itself. Set variables in the launching shell/process manager. Host/Origin checks, JSON validation, a 1 MiB request limit and CSP remain active; none is authentication.
 
 ## HTTP API
 
-Discovery: `GET /agents.md`, `GET /openapi.json`.
+Discovery: `GET /agents.md`, `GET /openapi.json`; health: `GET /health`. All tool calls use **one endpoint**, `POST /api/agent/v1`. This is HTTP tool calling, not the MCP protocol.
 
-All tool calls use **one endpoint**, `POST /api/agent/v1`:
+### Create or resume a session
+
+POSIX shell (macOS/Linux, Git Bash or WSL):
 
 ```sh
 curl -sS http://127.0.0.1:43821/api/agent/v1 \
@@ -91,15 +96,7 @@ curl -sS http://127.0.0.1:43821/api/agent/v1 \
   --data-binary '{"requestId":"open-1","sessionId":"demo-session","tool":"session_open","arguments":{"title":"My conversation"}}'
 ```
 
-This creates or resumes an empty example session. To add its first node on a fresh session:
-
-```sh
-curl -sS http://127.0.0.1:43821/api/agent/v1 \
-  -H 'Content-Type: application/json' \
-  --data-binary '{"requestId":"example-commit-1","sessionId":"demo-session","tool":"graph_commit","arguments":{"baseRevision":0,"answerId":"readme-example","nodes":[{"id":"idea","kind":"concept","label":"A shared knowledge canvas","detail":"Created through the HTTP API. People and agents can edit the same graph.","status":"proposed","sources":[]}],"edges":[]}}'
-```
-
-Open http://127.0.0.1:43821/#demo-session to see the node. These curl examples use POSIX shell syntax: use macOS/Linux, Git Bash or WSL. PowerShell users can use this equivalent session-opening call:
+Windows PowerShell:
 
 ```powershell
 $body = @{
@@ -111,109 +108,65 @@ $body = @{
 Invoke-RestMethod -Uri "http://127.0.0.1:43821/api/agent/v1" -Method Post -ContentType "application/json" -Body $body
 ```
 
-If you have already edited the example session, read its current revision before submitting a different commit. Re-running the exact successful request returns its original result; it does not reset the graph.
+### Add the first node
 
-Tools:
-- `tools_list`, `session_open`
-- `graph_read`, `graph_commit`, `graph_edit`, `graph_layout`, `graph_history`
-- `feedback_submit`, `feedback_read`, `feedback_ack`
-- `draft_open`, `draft_read`, `draft_change`, `draft_step`, `draft_rebase`, `draft_review`, `draft_submit`, `draft_discard`
+On a fresh example session, send:
 
-`tools_list` may omit sessionId; other tools require it. sessionId is 1–128 letters, digits, hyphens or underscores, starting with a letter or digit. The returned `canvasUrl` opens that session.
-
-Input/output JSON Schemas are generated from the actual tool contracts. Inspect them rather than guessing field names. Mutations require a unique requestId and, where applicable, the current revision. `graph_layout` requires **both** baseRevision and baseLayoutRevision.
-
-Errors return a non-2xx HTTP status, `isError:true`, readable `content`, `fieldErrors`, `expectedSchema` and recovery instructions. Validation failures apply nothing and do not reserve requestId: fix the input and retry. Replaying a successful mutation requires the exact original body/requestId; changing its tool, arguments or actor returns 409. For revision conflicts, re-read and reconcile rather than overwriting human edits. Prefer `curl -sS` when the agent needs to inspect error bodies.
-
-## Scoped flows and turn boundaries
-
-**Scope** selects Whole graph, a named turn or a custom flow. Nodes retain one semantic ID: the same node can be **Turn 1 · END** and **Turn 2 · START**. Start/end roles are independent of node type, status and relationship direction.
-
-- Use **Add flow** to name a turn/custom flow and choose its member nodes, relationships and multiple start/end nodes. **Edit flow** changes memberships and boundaries. Whole graph includes all active content.
-- The Inspector's start/end checkboxes stage roles for the selected scope. Qualified additional roles remain visible without applying another turn's boundaries to the current view.
-- Auto layout constrains only the selected scope. Starts share its leading band; ends share its trailing band, including disconnected members. Turn/custom view geometry is stored separately: arranging Turn 2 does not relocate Whole graph or Turn 1.
-- Role, membership and scoped-layout edits use the same durable draft, Undo/Redo, review and final Submit workflow. No agent notification is emitted by intermediate saves.
-- Drawings retain their captured scope. Clear a drawing before switching views or changing its coordinate frame; do not reinterpret a Turn 1 drawing as Turn 2.
-
-Agents explicitly provide stable flow IDs and turnId values; revision numbers are not turn numbers. `graph_commit.flows` upserts complete definitions while omitted flows remain unchanged. Example metadata for already-existing graph entities:
-
-```json
-{
-  "flows": [
-    {"id":"turn-1","scope":"turn","turnId":"turn-1","label":"Turn 1","nodeIds":["question","shared"],"edgeIds":["question-shared"],"startNodeIds":["question"],"endNodeIds":["shared"]},
-    {"id":"turn-2","scope":"turn","turnId":"turn-2","label":"Turn 2","nodeIds":["shared","conclusion"],"edgeIds":["shared-conclusion"],"startNodeIds":["shared"],"endNodeIds":["conclusion"]}
-  ]
-}
+```sh
+curl -sS http://127.0.0.1:43821/api/agent/v1 \
+  -H 'Content-Type: application/json' \
+  --data-binary '{"requestId":"example-commit-1","sessionId":"demo-session","tool":"graph_commit","arguments":{"baseRevision":0,"answerId":"readme-example","nodes":[{"id":"idea","kind":"concept","label":"A shared knowledge canvas","detail":"Created through the HTTP API.","status":"proposed","sources":[]}],"edges":[]}}'
 ```
 
-Use `retireFlowIds` to retire definitions explicitly. Retiring member nodes/relationships through an agent commit must repair affected flows in that same transaction. `graph_layout.flowId` selects a turn/custom layout; omit it for Whole graph. A one-member flow may be both START and END; with multiple members, that conflicting layout constraint is rejected without deleting valid metadata or moving nodes.
+Open http://127.0.0.1:43821/#demo-session. This agent-side commit publishes immediately; human UI edits instead use the draft/review workflow. If the session already changed, read `graph_read` and use its current revision before a different commit. An exact successful replay returns its original result and does not reset the document.
 
-Existing databases default to no flows; historical memberships are never invented. A turn view shows current shared node content, while immutable history/submissions preserve earlier content. See [scoped-flow design](docs/FLOW-BOUNDARIES.md) and [implementation contract](docs/SCOPED-FLOW-CONTRACT.md).
+| Tool group | Tools |
+| --- | --- |
+| Discovery / session | `tools_list`, `session_open` |
+| Canonical graph | `graph_read`, `graph_commit`, `graph_edit`, `graph_layout`, `graph_history` |
+| Human draft | `draft_open`, `draft_read`, `draft_change`, `draft_step`, `draft_rebase`, `draft_review`, `draft_submit`, `draft_discard` |
+| Feedback | `feedback_submit`, `feedback_read`, `feedback_ack` |
 
-## Canvas controls
+- `tools_list` may omit sessionId; other tools require it. Session IDs are 1–128 letters, digits, hyphens or underscores, beginning with a letter/digit.
+- Read actual `inputSchema`/`outputSchema` from `tools_list`; do not guess fields. The runtime guide is generated from [src/agent.ts](src/agent.ts), not the repository's contributor-only AGENTS.md.
+- Calls carry `requestId`, `sessionId`, `tool`, `arguments` and optional informational `actor`. A successful mutation replay must reuse the exact original tool/arguments/actor. Changed reuse returns 409.
+- Errors use non-2xx HTTP status, `isError:true` and `error` fields including paths/schema/recovery where available. Validation failures apply nothing and do not reserve requestId. Re-read/reconcile revision conflicts; never blindly overwrite human edits.
+- `graph_read` separates semantic nodes/edges/flows from layout. `graph_layout` saves geometry, does not compute it, and requires both `baseRevision` and `baseLayoutRevision`. See [layout fields, coordinate conventions and read-only example](docs/LAYOUT-DATA.md).
 
-- The compact document row holds **File**, the document title, durable Undo/Redo, the Inspector toggle and one **Review changes** command. **Scope** stays visible; **Arrange**, **View** and drawing options use menus rather than permanent explanatory panels.
-- The icon toolbox provides **Select (V)**, **Hand (H)**, **Center selection (F)**, **Add node (N)**, **Connect (C)**, **Draw (P)** and **Erase (E)**. Tooltips and accessible names identify every icon. Hold Space temporarily or middle-drag to pan; wheel zoom and status-bar Fit/zoom controls remain available.
-- The target icon immediately below **Hand** is **Center selection (F)**. It pans the selected node—or a multi-selection's bounding box—to the unobstructed canvas center without changing zoom, the active tool, node positions or the draft. It is a one-shot action, not another editing mode. View/context menus offer the same command; it remains available with drawings or incomplete form input.
-- **Search graph (Ctrl/Cmd+K)** opens ranked node search across labels, details, IDs, tags, source references and relationship text. Use **Current scope** or **Whole graph**, optionally filter by node type, then click a result or use arrows/Enter to select, inspect and center it without changing zoom. Escape closes search. Ordinary words include tag text; `#backend` matches that exact normalized tag, and `#backend database` requires both the tag and text. See [Graph search](docs/GRAPH-SEARCH.md).
-- **Properties → Tags** edits comma-separated classification tags. Tags are shared node metadata, not scope-specific START/END roles. AI agents set `nodes[].tags` through the existing HTTP `graph_commit`; omitted tags preserve existing tags and `[]` clears them. See the [AI tagging example](docs/TAGS-AND-NEIGHBORHOOD.md#assigning-tags-from-an-ai-agent).
-- Tags render as high-contrast colored chips. Choose each tag's color in **Properties → Tag color palette**, or leave Automatic for a stable color shared by normalized tag names. Overrides are node-local and remain unpublished until Submit. Agents may set `nodes[].tagColors`, for example `{"backend":"teal"}`; `{}` resets overrides.
-- Search `is:start` or `is:end`, or use the **Flow role** filter without text. Current scope matches only that scope's actual START/END roles; Whole graph matches roles across active flows. Combine terms, for example `is:start #backend`. A `#START` tag is classification, not a flow boundary.
-- **Add node**: activate the tool, click its canvas position, complete the Properties form and explicitly save. Existing nodes stay in place. **Connect**: choose source and target, or drag a connector handle; label and save the relationship. Escape cancels unfinished gestures. Self-links and parallel relations are supported.
-- Valid existing-object properties autosave to the durable draft. One continuous object edit is one Undo action; new objects still require explicit creation. Invalid input stays editable. Input fields retain native text Undo and IME behavior; Ctrl/Cmd+S saves to the draft, never to the agent.
-- Shift+click or drag a marquee for multiple selection. Drag the group, use arrows to nudge (Shift for larger steps), or use selection alignment/distribution commands. Copy/Paste/Duplicate assign new IDs, copy internal relationships and add only current-flow membership; boundary roles are not copied.
-- **Retire** preserves existing history and repairs incident relationships/memberships. **Erase drawing** removes annotation strokes only; it never deletes nodes or edges. Gestures and multi-object operations are undoable atomic draft edits.
-- **Arrange → Auto layout** uses a native same-origin Worker and saves the completed result directly to the current draft view. There is no Apply step. Cancel layout stops computation before saving; once saved, use Undo layout. Durable draft Undo/Redo is separate and survives reload. Nothing is published until final reviewed Submit.
-- **Arrange → Layout selected + connected**, the node context menu, or **Shift+L** with canvas/toolbox focus lays out selected active nodes and their immediate incoming/outgoing neighbors in the current scope. It saves that neighborhood as one undoable draft edit; outside nodes and unrelated routes stay fixed. Boundary roles constrain the neighborhood locally; use whole-scope Auto layout for whole-scope boundary bands. See [tags and neighborhood layout](docs/TAGS-AND-NEIGHBORHOOD.md).
-- Inspector tabs separate **Properties**, **Agent** instructions/submission history and graph **History**. On narrow screens the Inspector becomes a drawer. File/Connection details contain session IDs, setup and exact status instead of repeating them across the canvas.
-- **View → Focus connections** is off by default. Ctrl+node click focuses neighbors; ordinary selection clears focus. The minimap supports click/drag, arrow keys, Home and collapse.
-- Notes and drawings retain their captured scope. Clear or submit drawings before changing their coordinate frame; semantic-only rebases preserve them. Switching tools does not clear a drawing.
-- **Review changes** includes unsaved valid active forms rather than silently omitting them. Inspect before/after values, layout, notes, strokes and the final snapshot. Final **Submit to agent** is version-checked and replay-safe.
-- On a canonical conflict, the draft is retained. **Inspect latest / rebase** shows the latest data; merge nonconflicting changes or explicitly choose draft/latest for conflicts, then review again. Rebase resets old-base Undo history so undo cannot erase remote work.
-- Feedback remains pending after delivery. Agents use feedback_read and graph_commit.feedbackIds, or feedback_ack with an explanation, only after processing. Ambiguous drawings require clarification, not invented interpretation.
+## Optional automatic notification
 
-Layout changes do not change semantic revisions. Semantic edits or manual node movement invalidate old routes while preserving node coordinates. Layout does not verify the truth of claims or sources, and answers are not automatically rearranged after every turn.
-
-See the [compact workspace design](docs/COMPACT-WORKSPACE.md) for interaction and accessibility contracts, and [Center selection usage](docs/CENTER-SELECTION.md#usage) for navigation shortcuts, disabled states and narrow-screen behavior.
-
-## Automatic notification without an agent-specific plugin
-
-Run the same Node.js command using your agent's native **background shell task** capability, not as a blocking foreground tool:
+With user approval, an agent can run this through its **native background shell**:
 
 ```sh
 node scripts/watch.mjs --url http://127.0.0.1:43821 --session YOUR_SESSION_ID --after 0
 ```
 
-The watcher needs Node >=24.16 on its execution machine, no npm dependencies of its own, and permission to reach the server. From another project, use the absolute path to this repository's script. `/watch.mjs` serves the same source for inspection; do not blindly execute downloaded service code.
+From another working directory, use this repository script's absolute path. It needs Node >=24.16 and network permission, but no npm dependencies. `/watch.mjs` serves the source for inspection, not permission to blindly execute downloaded code.
 
-It waits silently through empty HTTP long polls. Draft saves, node moves, ordinary graph updates and simple legacy feedback_submit calls do not finish it. One **reviewed submission** produces one JSON line containing feedbackId and a durable cursor, then exits successfully. The agent's own background-completion mechanism delivers that result; there is no shell keystroke injection or agent-specific SDK.
+It waits silently through empty polls and returns one JSON line with `feedbackId` and `cursor` only after a **reviewed submission**. The agent then reads `feedback_read` and `graph_read`, processes or clarifies it, acknowledges honestly, and rearms with `--after` set to the returned cursor.
 
-After handling the packet, rearm with `--after` set to its cursor. Stopping the agent can stop its watcher. `--timeout-ms` sets an optional overall deadline; timeout/cancellation fails rather than reporting empty success. Keep only one watcher per session. `Watcher connected` means an HTTP wait is connected, not that a model read or applied anything.
+Keep one watcher per session. `--timeout-ms` sets an optional total deadline; cancellation/timeout is failure, not empty success. Simple `feedback_submit` calls do not complete this watcher. “Watcher connected” proves an HTTP wait, not model execution. See [review/watcher contract](docs/REVIEW-WORKFLOW.md).
 
-The shared transport is implemented; automatic continuation remains subject to the agent's version, permissions and background-task policy. The application does not bypass tool approvals, interrupt a CLI or impersonate user/system messages. See [review and watcher design](docs/REVIEW-WORKFLOW.md).
+## Data and recovery
 
-## Data and backups
+SQLite stores published graphs/layouts, semantic history, durable drafts/checkpoints, replay records and immutable feedback snapshots. Browser storage holds session/draft pointers, not a complete document backup. Raw transcripts are not collected automatically.
 
-SQLite WAL stores canonical graphs/history, durable drafts and bounded checkpoints, immutable reviewed submissions, replay results and submitted feedback snapshots. The browser stores only draft/session pointers. Raw conversations are not collected automatically.
+Stop the server before copying/restoring the database and any WAL/SHM siblings, or use a SQLite-consistent backup. Back up before resetting anything. `.axcanvas/`, `artifacts/`, `test-results/`, local `.omp/` settings and private reports are excluded from Git; ignore rules are not a secret scanner.
 
-Stop the server before manually copying/deleting the database and its WAL/SHM files, or use SQLite-consistent backups. Back up before resetting data. Existing databases are preserved; publishing the repository does not require deleting local work.
-
-`.axcanvas/`, `artifacts/`, local `.omp/` settings, private historical reports and common secret-file formats are excluded from Git. Ignore rules are not a secret scanner; review every publication candidate. Do not commit real session URLs or private screenshots.
-
-## Troubleshooting
-
-| Symptom | What to check |
+| Symptom | Next step |
 | --- | --- |
-| Startup fails or `node:sqlite` is unavailable | Run `node --version`; use Node.js 24.16 or newer, then install from the repository root. |
-| Port 43821 is already in use | Stop your other axcanvas process or choose another `AXCANVAS_PORT`. Use the same port in the browser and agent URL. |
-| The canvas is empty | Create a node in the UI or have the agent send graph_commit; session_open does not create example content. |
-| The agent cannot reach the server | Test `/health` from the agent's own environment. Its localhost may refer to another machine, container or sandbox. Enable trusted-LAN mode only when needed. |
-| A watcher has not returned | Save alone is not Submit. Open Review changes, resolve conflicts and use final Submit to agent. Check the same session ID and the Watcher connected indicator. |
-| A draft save conflicts | Inspect the saved draft/latest canonical graph and reconcile versions. Do not discard or overwrite someone else's input automatically. |
+| Startup or `node:sqlite` failure | Check `node --version`; use >=24.16 and launch from the repository root. |
+| Port already in use | Stop your other axcanvas process or set `AXCANVAS_PORT`; update browser/agent URLs together. |
+| Empty canvas | Open the correct session; create a node or ask the agent for `graph_commit`. `session_open` creates no example content. |
+| Agent cannot connect | Test `/health` from the agent's environment; check its localhost/container/LAN boundary. |
+| Watcher stays silent | Save is not Submit. Review, then Submit using the same session; check for a duplicate watcher. |
+| Draft conflicts | Inspect latest, merge nonconflicting changes, explicitly resolve remaining conflicts, then review again. |
+| Layout will not run | Finish form edits, clear/submit captured strokes, and check selected scope/START+END feasibility. |
+| Saved coordinates seem absent | Check the intended Flow's `flowLayouts`, not only global `positions`; display fallback is not stored geometry. |
 
-For LAN access, verify the server address, explicit bind setting and narrow firewall rule. Do not solve connection problems by exposing the port publicly. See [SECURITY.md](SECURITY.md).
+Detailed recovery and Undo distinctions: [User guide](docs/USER-GUIDE.md#7-recover-and-resume).
 
-## Development
+## Development and reference
 
 ```sh
 npm ci
@@ -222,14 +175,12 @@ npm run test:browser
 npm audit --omit=dev
 ```
 
-The browser runner uses matching Chrome, temporary databases and ephemeral loopback ports. It exercises complete authoring/review/rebase/submission, real drawing and feedback acknowledgement, native layout, English/multilingual content, focus, pan and minimap. Watcher tests launch the actual common script as a child process. No live user data, LLM credentials or paid model calls are needed; screenshots are ignored under test-results/.
+The browser runner uses Chrome, temporary databases and ephemeral loopback ports without live user data, LLM credentials or paid model calls. Set `PUPPETEER_EXECUTABLE_PATH` for an existing browser, or `PUPPETEER_SKIP_DOWNLOAD=true` before installing for server-only work. Keep sandboxing enabled; `AXCANVAS_BROWSER_NO_SANDBOX=1` is reserved for disposable CI.
 
-For a preinstalled browser, set `PUPPETEER_EXECUTABLE_PATH`. To skip browser downloads for server/core-only work, set `PUPPETEER_SKIP_DOWNLOAD=true` before installation. The test-only `AXCANVAS_BROWSER_NO_SANDBOX=1` opt-out is reserved for disposable CI; keep sandboxing enabled on your computer.
+GitHub Actions defines Windows/macOS/Linux core checks and an Ubuntu browser job; a workflow definition is not proof those runs passed. Feature documents' verification sections are historical records, not the current suite count.
 
-GitHub Actions defines Windows/macOS/Linux core checks and an Ubuntu browser job. A workflow definition is not evidence that all platforms have already passed.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), [architecture](docs/DESIGN.md), [layout design](docs/LAYOUT-DESIGN.md), [English-default contract](docs/ENGLISH-DEFAULT.md) and [CHANGELOG.md](CHANGELOG.md).
+[Contributor contract](AGENTS.md) · [Architecture](docs/DESIGN.md) · [Layout design](docs/LAYOUT-DESIGN.md) · [Flows](docs/FLOW-BOUNDARIES.md) · [Search](docs/GRAPH-SEARCH.md) · [Tags and neighborhood layout](docs/TAGS-AND-NEIGHBORHOOD.md) · [Changelog](CHANGELOG.md)
 
 ## License
 
-Original project code: [MIT](LICENSE). Dependencies retain their own licenses. ELKjs is used under EPL-2.0, not relicensed as MIT. See [third-party notices](THIRD-PARTY-NOTICES.txt) and [ELK license](licenses/ELKjs-LICENSE.txt). The running UI also links to these notices.
+Original project code: [MIT](LICENSE). Dependencies retain their licenses. ELKjs is used under EPL-2.0, not relicensed as MIT. See [third-party notices](THIRD-PARTY-NOTICES.txt) and [ELK license](licenses/ELKjs-LICENSE.txt).

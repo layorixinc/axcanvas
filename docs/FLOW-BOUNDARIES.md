@@ -2,10 +2,10 @@
 
 Status: implemented. Scoped persistence, draft/review integration, qualified canvas roles and boundary-aware native Worker layout are covered by automated and browser acceptance checks. This document replaces the earlier single graph-wide flow proposal.
 
-## Decision: scoped roles, displayed as tags
+## Decision: scoped roles, displayed as badges
 Multiple start/end nodes alone do not describe which flow they belong to. The same stable node can be a turn's end, the next turn's start and an ordinary node in the whole knowledge graph.
 
-Use structured flow membership and boundary roles. Display them as compact tags/badges, but do not store ambiguous free-form combinations such as start, end, turn-1, turn-2. A role always belongs to one identified flow. Node kind, proposal/confirmation/retirement status and edge direction remain independent.
+Use structured flow membership and boundary roles. Display them as compact badges, distinct from free-form node tags. A role always belongs to one identified flow. Node kind, status and edge direction remain independent. See [user steps](USER-GUIDE.md#5-choose-a-scope-and-arrange-it) and [geometry fields](LAYOUT-DATA.md).
 
 ## Flows and membership
 Add graph-level flows, keyed/upserted by stable flow ID:
@@ -66,7 +66,7 @@ The IDs above illustrate metadata; referenced graph entities must actually exist
 
 ## Human drafts and review
 - Add flow create/update/retire draft operations; durable Undo/Redo, net-zero diff and reload cover memberships, roles and scope layouts.
-- Inspector exposes Mark as start/Mark as end for the selected flow, plus every other flow membership/role. The selected flow must be explicit before editing a role.
+- Inspector exposes Mark as start/Mark as end for the selected scope, plus other flow memberships/roles. In Whole graph, checking a role creates the graph-scope definition if none exists; it does not create a classification tag.
 - Retiring a node/edge stages membership cleanup and role removal. Removing a newly created marked node must not leave a phantom flow change.
 - Review shows dedicated flow/membership/role and per-view layout diffs. Final Submit atomically publishes them with the rest of the draft and creates only one notification.
 - Rebase merges independent flow changes and reports incompatible membership/role changes. Undo after rebase cannot restore stale remote metadata.
@@ -79,7 +79,7 @@ The IDs above illustrate metadata; referenced graph entities must actually exist
 - Do not draw every turn's role as if it were a whole-graph boundary. Keep kind/status text, IDs, node dimensions and original user labels.
 - Use text and distinct shape/outline cues, not color alone. Accessible names include the qualified scope/role. All product labels remain English.
 - The minimap, review snapshot and submitted SVG show the same selected scope and role meaning.
-- Turn/custom views show their explicit members and edges; references to outside context are indicated without silently including extra semantic members.
+- Turn/custom views show only their explicit active members and edges. Use Whole graph or Whole graph search range to inspect outside content; outside-scope search results are labeled. No automatic cross-scope membership is inferred.
 
 ## Automatic layout uses one explicit scope
 The previous global leading/trailing-layer guarantee applies to the flow being laid out, not to every tag from every turn at once. Overlapping scopes can impose contradictory orders on the same shared node. Never merge all START/END tags into global constraints.

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Review public documentation against current code; add task-oriented usage/keyboard guidance and an agent geometry reference covering coordinate frames, Flow layouts, storage and reviewed delivery. Align generated /agents.md, draft operation references, search/tag palettes and historical design status with the implementation.
 - Render node tags as high-contrast colored chips with automatic normalized-name colors and per-node palette overrides in Properties, review and feedback images. Preserve color metadata for older clients.
 - Search actual scoped flow boundaries using `is:start`, `is:end` and a Flow role filter; distinguish roles from classification tags.
 - Save both whole-scope and selected-neighborhood layout directly to the draft when computation completes. Remove the preview/Apply step; retain computation cancellation, exact Undo and final reviewed submission. Reject newer canonical/draft revisions atomically rather than saving stale geometry.
@@ -11,7 +12,7 @@
 
 - Add indexed graph search with ranked multi-field literal matching, Unicode normalization, scope/type filters, visible match highlights, keyboard navigation and zoom-preserving result selection. Preserve drafts and captured drawing frames; document Graphify research and matching limitations.
 
-- Add Center selection below Hand in the toolbox, with F and View/context-menu access. Preserve zoom, tools, scoped geometry and draft state while navigating; support preview positions and mobile Inspector dismissal.
+- Add Center selection below Hand in the toolbox, with F and View/context-menu access. Preserve zoom, tools, scoped geometry and draft state while navigating; support saved/fallback positions and mobile Inspector dismissal.
 
 - Replace stacked editing panels with a compact two-row workspace, accessible SVG toolbox, contextual Inspector tabs/drawer and consolidated status.
 - Add direct node placement/connector gestures, selection marquee, scoped group moves, nudging, alignment/distribution and identity-safe Copy/Paste/Duplicate.

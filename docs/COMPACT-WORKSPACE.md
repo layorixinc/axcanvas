@@ -2,11 +2,13 @@
 
 Status: implemented. The product-owned interface remains English; user graph content and feedback are never translated. This document records the approved workspace layout, editing contracts and acceptance criteria.
 
+For current task instructions and shortcuts, use the [user guide](USER-GUIDE.md). This is the implemented design record; the baseline observations below describe the UI before this redesign.
+
 ## Evidence and problem
 
-Review used the current real browser surface and public/index.html. At a 1365 × 768 viewport, the canvas begins at y=420 and has 300px height. The app header is 70px; separate heading, draft, scope and layout sections consume the remaining upper workspace. The title partly scrolls behind the header. These measurements describe this viewport/state, not every screen size.
+Before the redesign, browser inspection of public/index.html at 1365 × 768 found the canvas beginning at y=420 with 300px height. The app header was 70px; heading, draft, scope and layout sections consumed the remaining upper workspace. These are historical baseline measurements, not the current layout.
 
-The current UI mixes document identity, authoring, flow metadata, arrangement, transport status and explanatory prose. Add node/Connect nodes are above the canvas while Draw/Clear drawing are at its bottom. The right sidebar simultaneously displays session internals, node properties, relationship management, instructions and history. This makes the primary editing area small and forces unnecessary scanning and scrolling.
+That earlier UI mixed document identity, authoring, flow metadata, arrangement, transport status and explanatory prose. Add node/Connect nodes were above the canvas while Draw/Clear drawing were below; the sidebar showed every editor at once. The implemented shell separates these concerns into menus and Inspector tabs.
 
 Borrow Office's command grouping, contextual properties, predictable selection, keyboard support and clear document state. Do not copy a tall ribbon, decorative branding or every Office feature.
 
@@ -14,21 +16,21 @@ Borrow Office's command grouping, contextual properties, predictable selection, 
 
 Desktop uses exactly two compact top rows and one bottom status bar. The canvas fills the remaining space without document-level vertical scrolling. A collapsed Inspector must immediately return its width to the canvas.
 
-1. Document row: small application/File menu, current document title/session switcher, Undo/Redo, Inspector toggle and one prominent Review changes command. Session ID entry, copy link, recent sessions and agent connection setup live in File/Open or a document popover, not permanent inputs.
-2. Command row: current Scope selector, contextual commands for the active tool/selection and Arrange/View overflow menus. Scope management sits in the scope dropdown's Manage flows action. No separate scope-description line or permanent layout-explanation line.
+1. Document row: File, title, draft Undo/Redo, graph search, Inspector toggle and Review changes. Session ID entry, Copy link and recent sessions live in File; agent connection guidance is in the Connection popover.
+2. Command row: Scope, its adjacent Manage flows button, contextual active-tool commands and Arrange/View/Draw menus. No separate scope-description or permanent layout-explanation row.
 3. Canvas: a small left toolbox, unobstructed working surface, optional lower-right minimap. Temporary gesture previews and editing handles are spatially attached to the object, not another full-width toolbar.
-4. Inspector: collapsible right properties pane, normally 288–320px. It shows the selected node, selected relationship, current scope or active drawing settings—not all editors stacked together. No selection shows a compact document/scope summary rather than a large tutorial.
-5. Status bar: current tool's short instruction, draft save state, a single agent-delivery indicator and zoom controls/percentage. Revision/counts/IDs are available in a details popover. Legal notices and keyboard help move to Help/About.
+4. Inspector: collapsible 300px properties pane with Properties, Agent and History tabs. With no selection it shows a short hint and contextual selection/relationship controls, not every editor.
+5. Status bar: current-tool hint, save state, connection/delivery summary, Details and Fit/zoom. File → Help and shortcuts contains keyboard help and third-party notices; there is no separate Help/About menu.
 
-Desktop target: top chrome at most 96px; bottom bar at most 28px. At 1365 × 768 the canvas should have at least 620px usable height, rather than the observed 300px. These are acceptance targets, not measured improvements.
+Desktop acceptance targets: top chrome at most 96px, bottom bar at most 28px and at least 620px canvas height at 1365 × 768. The historical verification below measured 648px after implementation, versus the earlier 300px.
 
 ## Remove, merge or relocate
 
-| Current element | Decision |
+| Earlier element | Implemented relocation |
 | --- | --- |
 | LAN · HTTP tools badge; ONE CONVERSATION, ONE CANVAS eyebrow | Remove from editing chrome; explain connection in setup/help. |
 | Large title, subtitle/session ID and separate revision/count block | Replace with one document title and a details popover. |
-| Persistent Session ID textbox and Open button | Move to File → Open session/link. Keep one recent-document switcher. |
+| Persistent Session ID textbox and Open button | File → Session ID → Open session. Full links are opened in the browser; Copy link copies the current canvas URL. |
 | Separate draft, flow and layout panels | Replace with the document row, command row and toolbox. |
 | Flow label + type + ID description below selector | Show selected label once; type/ID appear in Manage flows/tooltip. |
 | Positions change only when you run layout | Remove static text; show state only during calculation/saving/failure. |
@@ -38,7 +40,7 @@ Desktop target: top chrome at most 96px; bottom bar at most 28px. At 1365 × 768
 | Permanent relationship picker and connected-relations block | Show in relationship/node context; no duplicate persistent global editor. |
 | Permanent instructions, feedback history and graph history | Inspector tabs: Properties, Agent, History. Agent has the note editor and submission states. |
 | Bottom floating Fit/zoom/Draw/Clear/Include retired bar | Drawing moves to toolbox, zoom to status bar, display options to View. |
-| Permanent legend and mouse-instruction footer | Legend in View, shortcuts in Help; current-tool hint only in status bar. |
+| Permanent legend and mouse-instruction footer | Legend in View, shortcuts in File → Help and shortcuts; current-tool hint in status bar. |
 
 Removing repeated prose does not remove security or data-loss safeguards. No authentication, scope-frame restrictions and delivery-versus-processing distinctions remain discoverable and appear where they affect a decision.
 
@@ -46,18 +48,19 @@ Removing repeated prose does not remove security or data-loss safeguards. No aut
 
 Use a single self-contained SVG icon family: consistent stroke, visible active state and no emoji or external icon fonts. Tooltips contain the English command and shortcut. Every icon button has an accessible name; toggle tools expose aria-pressed. Tooltips also work on keyboard focus. Primary Review remains icon plus text, not an unexplained symbol.
 
-| Tool | Shortcut proposal | Pointer behavior | Completion |
+| Tool | Shortcut | Pointer behavior | Completion |
 | --- | --- | --- | --- |
 | Select (arrow) | V | Select objects; drag a node to move; drag blank canvas for marquee in the full selection model. | Remains active. |
 | Hand | H; hold Space temporarily | Pan from blank space or over an object. Existing middle-drag remains. | Space release restores the prior tool. |
+| Center selection (target) | F, canvas/toolbox focus | Center visible selected nodes without changing zoom or stored geometry. | One-shot command, not an editing mode. |
 | Add node (node with plus) | N | Click canvas to place a node; choose type in a small adjacent menu or Inspector. | Focus Label; return to Select after creation. |
 | Connect (directed connector) | C | Choose source then target, or drag a visible connector handle onto a target. | Edit relationship label; return to Select after creation. |
 | Draw (pen) | P | Freehand annotation in the current scope frame; never a semantic edge. | Remains active until changed/Escape. |
 | Erase drawing (eraser) | E | Remove an entire hit annotation stroke, not nodes/edges. | One erase gesture is one undoable edit. |
 
-Top command row changes with the active tool: node type for Add; source/target and direction for Connect; pen width/color and eraser options for Draw. Colors are an optional annotation styling extension, not a reason to reinterpret existing stored strokes. Initially retain the existing annotation style unless its schema and SVG rendering are extended together.
+The command row offers a type selector for Add node and Cancel connection for Connect. Draw/Erase moves Clear drawing into the contextual row. Annotation style is fixed; pen width/color controls are not implemented. Tag palette colors are node metadata, not drawing styles.
 
-Clear drawing is a secondary Draw menu command with undo/confirmation when needed. Retire node/relationship belongs to selection context and the context menu, not the eraser.
+Clear drawing is otherwise in the Draw menu and is saved as an undoable instruction edit. Retire node/relationship belongs to Properties/selection context, not the eraser.
 
 Toolbar icon hit targets are at least 36px on desktop and 44px in touch layouts. The same icon must mean the same action in every context. Compactness must not depend on unreadable labels or hover-only access.
 
@@ -108,9 +111,9 @@ Aim for Office-style saved-state clarity without changing publication rules:
 - Support keyboard toolbar navigation, visible focus, semantic tool names and non-color-only active states. Focus returns to the originating command after dialogs close.
 - Preserve multilingual labels, Korean IME, existing middle-pan/Ctrl-focus, browser zoom, and OS shortcuts. Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS where applicable. Announce save/error state changes without flooding live regions during every pointer movement.
 
-## Implementation plan and scope boundaries
+## Implemented scope and exclusions
 
-This is a product plan, not an assertion that Office editing features already exist.
+The following implementation slices are complete; they are not promises of a general Office document editor:
 
 1. Compact shell and progressive disclosure: consolidate chrome, toolbox, status, contextual Inspector, File/Scope/Arrange/View menus; keep existing backend and publication semantics.
 2. Direct-manipulation tools: explicit Select/Hand/Add/Connect/Draw/Erase state machine, source/target previews, keyboard cancellation and scoped gesture transactions. Retain inspector-based authoring as an accessible fallback, not duplicate permanent chrome.

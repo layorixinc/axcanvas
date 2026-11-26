@@ -2,6 +2,8 @@
 
 This refines FLOW-BOUNDARIES.md into shared implementation interfaces. English UI, additive migration, canonical graph APIs, durable drafts/review and one-shot notification remain invariants. No turn inference from graph revision or creation order.
 
+Current UI usage: [Scopes and arrangement](USER-GUIDE.md#5-choose-a-scope-and-arrange-it). Exact coordinate/storage/delivery conventions: [Layout data](LAYOUT-DATA.md). Source schemas are authoritative for limits.
+
 ## Data
 Flow = {id,scope:'graph'|'turn'|'custom',label,status:'active'|'retired',turnId?:string,nodeIds:string[],edgeIds:string[],startNodeIds:string[],endNodeIds:string[]}. status defaults active; ID sets are unique. For scope graph, nodeIds/edgeIds default [] and membership is all active graph content; do not accept a nonempty explicit member list. turn requires nonempty turnId; turnId is absent for graph/custom. At most one active graph flow and one active flow for each turnId. turn/custom can be empty while authored; boundary IDs must belong to active member nodes; member edges require their endpoints in membership. Validate active flows after combined graph changes.
 
@@ -12,7 +14,7 @@ graph_commit gains optional flows (upsert complete definitions by ID) and retire
 graph_layout gains optional flowId (null/omitted means Whole graph). A graph-scope ID also targets Whole graph. Scope geometry references only its members/edges. Store layout changes only in the selected view; never copy scoped layout into global fields. Reject unknown/retired scope IDs and invalid route/member IDs. Semantic changes invalidate routes in every affected view conservatively while preserving coordinates.
 
 ## Shared pure view/layout helpers
-- flowView(graph, flowId = null): returns {nodes,edges,positions,routes,layoutDirection,flow,flowId}. Null or a graph flow targets all active content and global geometry; a non-global flow returns only explicit active members and its scoped geometry. Unknown/retired IDs throw. flow is the active flow definition or null; flowId is null for Whole graph, otherwise the non-global ID.
+- public/flows.js flowView(graph, flowId = null) returns {nodes,edges,positions,routes,layoutDirection,flow,flowId}. Null or an active graph flow targets all active content/global geometry; a non-global flow returns explicit active members and its scoped geometry. Unknown/retired IDs throw. Missing scoped entries fall back to member global positions with no routed layout/direction; existing entries are not filled from global per node. The backend's src/flows.ts view helper uses the field name direction and returns flow:null for a null ID, while the public helper resolves the active graph-flow definition for badges/constraints.
 - boundaryRoles(graph,nodeId): returns [{flowId,label,scope,start,end}] for all active flows where the node has a role. Never infer from edges.
 - buildLayoutGraph(graph,direction,measurements,flowId=null) filters through flowView and rejects multi-member dual-role constraints. Ordinary scopes use FIRST_SEPARATE/LAST_SEPARATE, separateConnectedComponents=false and GREEDY_MODEL_ORDER. Linked boundary bands use full-size ELK compound nodes with fixed-side ports because ELK forbids edges within FIRST_SEPARATE/LAST_SEPARATE bands. Extract nested coordinates into one frame and enforce the same actual-geometry and original semantic endpoint postconditions.
 - extractLayout(elkOutput,direction,semanticGraph,flowId=null) requires semanticGraph, validates completeness, actual boundary bands, finite/nonoverlapping rectangles, orthogonal routes, labels and original edge endpoints, then returns {positions,routes,direction}. Migrate every caller; no hidden unconstrained fallback.
@@ -22,6 +24,7 @@ Existing draft operations gain optional flowId where geometry/authoring depends 
 - node {type:'node',node,position?,flowId?}: new nodes in a non-global flow are added to its membership and positioned in that view, not global coordinates. Existing shared nodes are never cloned.
 - edge {type:'edge',edge,flowId?}: include the edge in that flow; endpoints must already be members.
 - move/layout gain flowId and modify only selected view geometry.
+- layout_region also accepts flowId; positions must exactly match its nonempty nodeIds and routes must connect only region members. It merges the neighborhood while retaining outside positions/unrelated routes, clearing crossing routes and preserving the view's direction. Worker completion immediately saves one draft checkpoint; no preview/Apply stage exists.
 - {type:'flow',flow:Flow} upserts a definition; {type:'retire_flow',flowId} retires an existing flow or removes a newly created one.
 - human retire_node/retire_edge cleans affected memberships, boundaries and scoped geometry; review exposes flow diffs. New-then-removed nodes/flows produce no phantom changes.
 - instruction gains optional flowId; DraftView gains captureFlowId:string|null. Feedback gains captureFlowId?:string|null. Store the annotation frame's selected view; default old payloads to Whole graph.

@@ -28,6 +28,7 @@
 
 ## Workflow and verification
 1. Update design and acceptance criteria before implementation.
+   - Keep README.md and docs/USER-GUIDE.md task-oriented. Document layout frames and API delivery in docs/LAYOUT-DATA.md; update generated /agents.md guidance in src/agent.ts when contracts change. Mark historical verification records as historical rather than claiming current suite/platform coverage.
 2. TDD: first observe a consumer-visible regression for uncovered error recovery, replay, isolation, Host or feedback behavior.
 3. Run relevant tests, type checks and real HTTP clients after implementation.
 4. Use the standalone Puppeteer runner to exercise real editing, drawing, isolation, Worker layout, focus, minimap and English defaults. Use temporary databases/ports without requiring paid model calls or credentials.

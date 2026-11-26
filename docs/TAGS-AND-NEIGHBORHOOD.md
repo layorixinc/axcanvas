@@ -1,5 +1,7 @@
 # Tags and selected-neighborhood layout
 
+User steps: [Tag editing](USER-GUIDE.md#existing-nodes), [search](USER-GUIDE.md#4-search) and [arrangement](USER-GUIDE.md#5-choose-a-scope-and-arrange-it). This reference explains the data/implementation contract.
+
 ## Separate tags from boundary roles
 
 START/END remain structured, scoped flow roles: `flows[].startNodeIds` and `endNodeIds`. The same stable node may be END in one flow and START in another. Tags classify/search node content; a tag named START never changes layout boundaries. Tags apply to the shared node, not just one flow membership.
@@ -15,6 +17,7 @@ START/END remain structured, scoped flow roles: `flows[].startNodeIds` and `endN
 ### Tag colors and boundary search
 
 Render high-contrast palette chips without changing node dimensions. An optional node-local `tagColors` record maps normalized tag names to palette names (blue, teal, green, amber, coral, pink, violet). Omitted color metadata preserves existing overrides for older clients; `{}` resets overrides. Default colors are deterministic by normalized tag name. Properties edits, review images and submitted snapshots use the same palette.
+Keys use Unicode NFKC then lowercase; a supplied map replaces all overrides, while omission preserves them. Palette values are names, not arbitrary CSS/hex strings. Colors belong to the shared node across views, not to a document-wide editable tag registry. Chips use one bounded row with truncated names/overflow count; Properties retains the full list. Setting colors does not set flow roles or tag membership.
 
 Search `is:start` and `is:end` against actual active flow roles, never tag spelling. Current scope uses only that scope's roles; Whole graph searches roles across active flows. Combine role queries with tags and text using AND. A role dropdown also supports role-only search.
 

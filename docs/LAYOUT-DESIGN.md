@@ -1,5 +1,7 @@
 # Automatic layout design
 
+User steps: [Arrange a scope](USER-GUIDE.md#5-choose-a-scope-and-arrange-it). Agent-readable field paths, coordinate conventions, initial fallbacks and delivery snapshots: [Layout data](LAYOUT-DATA.md). This design describes current layout computation; graph_layout only saves caller-supplied geometry.
+
 ## Workflow
 Choose Left → right or Top → bottom, then run Auto layout. A successful calculation immediately saves positions/routes/labels to the durable draft in one undoable operation; there is no preview/Apply step. Cancel is available only while computing, before any write starts. Undo layout restores this tab's most recent saved draft layout; persistent draft Undo/Redo is separate. Final reviewed Submit still publishes the graph/layout together. Selected + connected uses the same lifecycle for its isolated neighborhood.
 
@@ -10,12 +12,13 @@ Choose Left → right or Top → bottom, then run Auto layout. A successful calc
 - Calculate in a real same-origin Worker. Bind job ID, sessionId and graph/layout revisions; discard late results. Preserve existing layout on failure, with no fake fallback success.
 - Computing writes nothing. Cancel discards the in-flight Worker and late results without changing the draft or camera. Once saving starts, hide Cancel and keep editing blocked until the atomic request succeeds or fails. Draft save/Undo uses optimistic draft versions; final Submit checks both canonical graph and layout revisions.
 - Unstored active forms and drawings block rearrangement. Saved draft text/graph changes may be explicitly laid out. Computing/saving blocks editing, moving, drawing and session changes while preserving pan/zoom. Do not show new geometry or create an Undo marker until the save succeeds.
-- A manual node move invalidates every stored route because it may obstruct unrelated edges. Preserve coordinates and require explicit layout to reroute.
+- A manual node move invalidates stored routes in that view because it may obstruct unrelated edges in the same view. Preserve coordinates and require explicit layout to reroute. It does not clear another view's independently saved geometry.
 - Semantic commits invalidate routes while preserving coordinates. Clearing routes increments layoutRevision. Re-reading invalidates stale jobs and undo. A newer draft/canonical revision during computation or saving must preserve that writer's changes and the last valid layout, never overwrite them.
 - Never silently display obsolete routes for changed data. Unrouted edges use basic connections until the user requests layout.
 
 ## Contract and storage
 Graph includes routes and layoutDirection. A route has sections: Position[][] and label: {x,y,width,height,text}. Direction is RIGHT, DOWN or null.
+Whole-graph fields live at the graph root; turn/custom fields live under flowLayouts[flowId] with direction rather than layoutDirection. A route's section arrays are independent polylines in the same world-coordinate frame as node top-lefts, not node-local offsets. Missing positions/routes can render unstored fallbacks; they are not saved ELK output.
 
 Agents can still use canonical graph_layout with baseRevision, baseLayoutRevision, mode (move/replace), positions, routes and direction. Human layout uses draft_change with operation.type=layout and is published only by draft_submit.
 - move merges supplied positions, clears routes and keeps the existing direction.

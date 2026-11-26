@@ -7,13 +7,14 @@ Use the existing direct DOM/string conventions. Do not introduce a locale picker
 
 ## Vocabulary
 - Auto layout; Cancel layout (while computing); Undo layout
-- Fit graph; Draw; Clear drawing; Include retired
-- Focus connections; Minimap; Collapse; Expand
-- Save changes; Reload; Show history; Send to agent
+- Fit; Draw; Erase drawing; Clear drawing; Include retired
+- Focus connections; Minimap; Collapse; Expand; Center selection; Search graph
+- Save to draft; Review changes; Submit to agent; Inspect latest / rebase; Show history
 - Concept, Claim, Decision, Question, Task
 - Proposed, Confirmed, Retired; Pending, Applied, Needs clarification, Rejected
 
 History times use en-US formatting while retaining the browser's local time zone. OS/browser language must not change the application chrome to another language.
+For task instructions and current keyboard context, use the [user guide](USER-GUIDE.md); the verification record below describes the initial language-default change, not today's complete UI or test count.
 
 ## Data invariant
 Never translate or rewrite user session titles, node labels/details, relationships, sources, feedback notes/resolutions, IDs, existing databases or browser history. API tool names, enums, revisions, schema and storage formats do not change. Keep Unicode font fallback and genuine multilingual test coverage.

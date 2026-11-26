@@ -1,6 +1,8 @@
 # Compact workspace implementation contract
 
-Approved scope: COMPACT-WORKSPACE.md, all four implementation steps. Original draft/review, scoped flows, native Worker and notification safety remain invariants. No runtime publication before final reviewed Submit.
+Approved scope: COMPACT-WORKSPACE.md, all four implementation steps. Draft/review, scoped flows, native Worker and notification safety remain invariants. Human changes publish only at final reviewed Submit; canonical agent graph tools still publish immediately.
+
+This is the implemented internal contract, not onboarding. Start with the [user guide](USER-GUIDE.md) for everyday tasks. Later search, Center selection and palette controls extend the shell without changing its draft/publication boundary.
 
 ## Component interfaces
 
@@ -19,6 +21,7 @@ public/workspace.js exports initWorkspace(callbacks), returns {setTool(tool), ge
 Preserve core IDs: canvas/nodes/edges/ink, title, sessions/session-id/open-session (File popover), revision/counts/subtitle/draft-version/turn-status/turn-detail/flow-context (details popover, not hidden duplicate shims), connection/watcher-status (Connection popover), flow-selector/add-flow/edit-flow (scope management), layout-direction/auto-layout/auto-layout-neighborhood/cancel-layout/undo-layout (Arrange; computing/saving status in command row, no Apply control), focus-relations/show-retired (View), fit/zoom-in/zoom-out (status), pen (Draw tool), add-node/connect-nodes (toolbox), clear-ink (Draw menu), inspector/editor/hint/node-* and flow role fields, edge-* forms/picker, feedback-note/list/target (Agent panel), send-feedback (single Review button in document row), history-toggle/history (History panel), existing modal IDs. Editor calls showPanel properties on selecting/creating node/edge and Agent on explicit note access, not every rerender.
 
 New shell selectors: #tool-select,#tool-hand,#tool-erase plus existing add-node/connect-nodes/pen, #toolbox role toolbar, #workspace-status,#tool-hint,#save-state,#zoom-value,#agent-state,#inspector-toggle,#tab-properties/#tab-agent/#tab-history, #panel-properties/#panel-agent/#panel-history, #file-menu/#file-toggle,#scope-menu/#scope-menu-toggle,#arrange-menu/#arrange-toggle,#view-menu/#view-toggle,#draw-menu/#draw-menu-toggle,#details-menu/#details-toggle,#connection-menu/#connection-toggle. Native details/popovers are allowed; hidden commands must be opened before tests interact. #selection-tools offers #align-left/#align-top/#distribute-horizontal/#distribute-vertical/#duplicate-selection/#copy-selection/#paste-selection/#retire-selection, all wired through onCommand. Draw options retain existing annotation style; do not add nonfunctional styling controls.
+Additional controls: #tool-center-selection (one-shot navigation, not data-tool), #view-center-selection and contextual equivalent; #graph-search-toggle/#graph-search-panel with range/kind/role filters; #node-tags and #node-tag-palette for node metadata. User entry points and keyboard rules are listed in USER-GUIDE.md.
 
 Two top rows <=96px total, status<=28px, desktop canvas>=620px at1365x768. Desktop Inspector300px, collapsed returns width. At390/800px no document overflow, accessible File/Scope/Review/toolbox, Inspector drawer, no permanent tall form; mobile minimap initially collapsed. Self-contained inline SVG icons, native button titles/aria-labels/pressed states, keyboard focus, 36px desktop/44px touch targets. No iframe or external icon dependency.
 

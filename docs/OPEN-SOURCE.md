@@ -1,5 +1,7 @@
 # Open-source release preparation
 
+This is the historical initial-publication checklist and evidence record, not the current installation guide or an assertion about current dependency advisories. Use the [README](../README.md#quick-start) and [contribution guide](../CONTRIBUTING.md) for current commands; run a fresh audit before a new release.
+
 ## Scope and invariants
 - Publish source under MIT; preserve third-party licenses, including ELKjs EPL-2.0 and its exact source revision.
 - Preserve all local SQLite databases, agent sessions, screenshots and historical verification reports. Exclude them from Git; do not delete or rewrite them.
@@ -21,7 +23,7 @@ Local execution does not prove the GitHub-hosted workflow ran or that macOS/Linu
 ## Observed local release verification — 2026-11-24
 - Copied only the 41 publication candidates to a new temporary source directory; no node_modules, database, artifact, agent session or Git metadata was copied.
 - A clean npm ci completed. npm run check passed: 29 Node tests, TypeScript and public JS syntax checks.
-- The standalone Chrome runner covers automatic draft layout save/computation-cancel/Undo/conflicts, node selection and unsaved input, Ctrl focus, middle-button pan, centered fit, minimap, real node editing, drawing submission and atomic feedback acknowledgement.
+- At that initial release, the standalone Chrome runner covered layout preview/apply/cancel/Undo/conflicts, selection, focus, pan, Fit, minimap, editing, drawing and acknowledgement. The current layout workflow instead saves completed calculations directly to the draft; see [layout design](LAYOUT-DESIGN.md).
 - The pan helper originally targeted a node hidden under the floating controls after repeated pan/zoom. It now hit-tests a visible node before dragging; all five original pan scenarios remain in the suite.
 - npm audit --omit=dev reported zero known production vulnerabilities.
 - A limited token/private-environment pattern scan of the publication candidates found no matches. This is not a guarantee that every form of sensitive data is absent.
