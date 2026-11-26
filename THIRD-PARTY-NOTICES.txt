@@ -25,3 +25,13 @@ Source: https://github.com/colinhacks/zod/tree/v4.6.7
 Development tools, including Puppeteer, TypeScript and Node type declarations,
 are obtained separately through npm. Their upstream distributions contain
 their own licenses; they are not relicensed by the axcanvas MIT license.
+
+Standalone Bun runtime
+----------------------
+Standalone executables embed Bun 1.4.2 and its linked runtime libraries.
+Upstream licensing inventory: licenses/Bun-LICENSE.md and /licenses/bun.txt
+in a standalone server, or axcanvas --licenses.
+Exact compiler source: https://github.com/oven-sh/bun/tree/bun-v1.4.2
+Bun includes LGPL-covered JavaScriptCore/WebKit. See docs/DISTRIBUTION.md
+for rebuilding the application with a modified runtime. No restriction on
+debugging or reverse engineering LGPL-covered runtime modifications is added.

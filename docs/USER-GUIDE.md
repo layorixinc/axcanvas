@@ -4,7 +4,7 @@
 
 ## 1. Open the right document
 
-Keep `npm start` running. Open the `canvasUrl` your agent returned, or enter its session ID in **File → Session ID → Open session**. The field accepts an ID, not a complete URL. A document is identified by its session ID; reuse the same link when you resume. Opening a new session does not import a conversation automatically.
+Keep `axcanvas` or your standalone executable running (`npm start` for source development). Open the `canvasUrl` your agent returned, or enter its session ID in **File → Session ID → Open session**. The field accepts an ID, not a complete URL. A document is identified by its session ID; reuse the same link when you resume. Opening a new session does not import a conversation automatically.
 
 Use the server's reachable address when the browser or agent is on another machine. Enable LAN mode only on a trusted network; the application has no login or access control.
 

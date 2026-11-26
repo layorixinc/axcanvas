@@ -24,16 +24,45 @@ This is an earlier example screenshot, not a complete picture of the current too
 
 ## Quick start
 
-Requirements: **Node.js >=24.16**, npm and Git. Run from the repository root:
+### npm package
+
+Requires **Node.js >=24.16** and npm, but no Git, compiler or checkout. Once a release is published:
 
 ```sh
-git clone https://github.com/layorixinc/axcanvas.git
-cd axcanvas
-npm ci --omit=dev
-npm start
+npx axcanvas@latest
+# Or install once:
+npm install -g axcanvas
+axcanvas
 ```
 
-Open **http://127.0.0.1:43821** and keep the server running. A new session is empty, not a preloaded conversation. Data is stored in `.axcanvas/graph.sqlite` by default. For development/browser tests, install with `npm ci` without `--omit=dev`.
+Before the first registry publication, install the locally built tarball instead: `npm install -g ./axcanvas-0.1.0.tgz`. Package support does not mean the registry release already exists.
+
+### Standalone executable
+
+Download the executable matching your OS/CPU and its `.sha256` from [GitHub Releases](https://github.com/layorixinc/axcanvas/releases). Standalone releases are built with Bun but require **neither Node nor Bun** on your computer.
+
+```powershell
+# Windows x64
+.\axcanvas-windows-x64.exe
+```
+
+```sh
+# Example: Apple Silicon; choose darwin-x64 for Intel or linux-x64/linux-arm64 for Linux
+chmod +x ./axcanvas-darwin-arm64
+./axcanvas-darwin-arm64
+```
+
+Artifacts are unsigned unless the release explicitly says otherwise. Check the checksum against a trusted release; a checksum is not a publisher signature. No release is created merely by building locally.
+
+Both variants run in the foreground. Open **http://127.0.0.1:43821**, keep the process running and use Ctrl+C to stop. Data defaults to `.axcanvas/graph.sqlite` in the directory you launched from—not the installed package or executable directory. Startup prints the resolved DB path. A new session is empty, not a preloaded conversation.
+
+```sh
+axcanvas --help
+axcanvas --version
+axcanvas --port 43822 --db ./my-canvas.sqlite
+```
+
+For source development: clone this repository, run `npm ci`, then `npm start` (the same CLI via source). Developer/build dependencies are required for source mode; `npm ci --omit=dev` is only for consumers of a prebuilt package.
 
 ### Connect an agent
 
@@ -60,15 +89,10 @@ The server does **not** collect transcripts, detect turns, interrupt a CLI or fo
 Only enable LAN access on a network whose participants you trust:
 
 ```sh
-# macOS / Linux
-AXCANVAS_HOST=0.0.0.0 npm start
+axcanvas --host 0.0.0.0
 ```
 
-```powershell
-# Windows PowerShell
-$env:AXCANVAS_HOST = "0.0.0.0"
-npm start
-```
+For an executable use the same flags, for example `./axcanvas-linux-x64 --host 0.0.0.0`. From source use `npm start -- --host 0.0.0.0`. `--host`, `--port` and `--db` override their environment variables; existing AXCANVAS_* configuration still works.
 
 Use the server computer's LAN IPv4 address on port 43821. Restrict firewall access to the intended subnet; do not disable the firewall, enable router port forwarding or use a public tunnel. Anyone with network access and the session ID can read/write it. See [SECURITY.md](SECURITY.md).
 
@@ -128,7 +152,7 @@ Open http://127.0.0.1:43821/#demo-session. This agent-side commit publishes imme
 | Feedback | `feedback_submit`, `feedback_read`, `feedback_ack` |
 
 - `tools_list` may omit sessionId; other tools require it. Session IDs are 1–128 letters, digits, hyphens or underscores, beginning with a letter/digit.
-- Read actual `inputSchema`/`outputSchema` from `tools_list`; do not guess fields. The runtime guide is generated from [src/agent.ts](src/agent.ts), not the repository's contributor-only AGENTS.md.
+- Read actual `inputSchema`/`outputSchema` from `tools_list`; do not guess fields. The runtime guide is generated from [src/agent.ts in the repository](https://github.com/layorixinc/axcanvas/blob/main/src/agent.ts), not the contributor-only AGENTS.md. Source checkout is not needed by installed consumers.
 - Calls carry `requestId`, `sessionId`, `tool`, `arguments` and optional informational `actor`. A successful mutation replay must reuse the exact original tool/arguments/actor. Changed reuse returns 409.
 - Errors use non-2xx HTTP status, `isError:true` and `error` fields including paths/schema/recovery where available. Validation failures apply nothing and do not reserve requestId. Re-read/reconcile revision conflicts; never blindly overwrite human edits.
 - `graph_read` separates semantic nodes/edges/flows from layout. `graph_layout` saves geometry, does not compute it, and requires both `baseRevision` and `baseLayoutRevision`. See [layout fields, coordinate conventions and read-only example](docs/LAYOUT-DATA.md).
@@ -138,10 +162,10 @@ Open http://127.0.0.1:43821/#demo-session. This agent-side commit publishes imme
 With user approval, an agent can run this through its **native background shell**:
 
 ```sh
-node scripts/watch.mjs --url http://127.0.0.1:43821 --session YOUR_SESSION_ID --after 0
+axcanvas watch --url http://127.0.0.1:43821 --session YOUR_SESSION_ID --after 0
 ```
 
-From another working directory, use this repository script's absolute path. It needs Node >=24.16 and network permission, but no npm dependencies. `/watch.mjs` serves the source for inspection, not permission to blindly execute downloaded code.
+For a standalone executable use its actual absolute path instead of axcanvas; it needs no Node/Bun installation. The agent machine must have the CLI/executable—it is not enough to install it only on the server. An inspected, approved local copy of `/watch.mjs` can alternatively run with Node >=24.16 and no npm dependencies. Serving source is not permission to blindly download/execute it.
 
 It waits silently through empty polls and returns one JSON line with `feedbackId` and `cursor` only after a **reviewed submission**. The agent then reads `feedback_read` and `graph_read`, processes or clarifies it, acknowledges honestly, and rearms with `--after` set to the returned cursor.
 
@@ -155,7 +179,7 @@ Stop the server before copying/restoring the database and any WAL/SHM siblings, 
 
 | Symptom | Next step |
 | --- | --- |
-| Startup or `node:sqlite` failure | Check `node --version`; use >=24.16 and launch from the repository root. |
+| Startup or `node:sqlite` failure | For npm, check `node --version` (>=24.16); for a standalone executable, check the OS/CPU and release requirements. No repository root is needed. |
 | Port already in use | Stop your other axcanvas process or set `AXCANVAS_PORT`; update browser/agent URLs together. |
 | Empty canvas | Open the correct session; create a node or ask the agent for `graph_commit`. `session_open` creates no example content. |
 | Agent cannot connect | Test `/health` from the agent's environment; check its localhost/container/LAN boundary. |
@@ -173,14 +197,22 @@ npm ci
 npm run check
 npm run test:browser
 npm audit --omit=dev
+npm run test:package -- --browser
+# Developers building executables also install pinned Bun 1.4.2:
+npm run build:binary
+npm run test:binary -- --browser
 ```
 
 The browser runner uses Chrome, temporary databases and ephemeral loopback ports without live user data, LLM credentials or paid model calls. Set `PUPPETEER_EXECUTABLE_PATH` for an existing browser, or `PUPPETEER_SKIP_DOWNLOAD=true` before installing for server-only work. Keep sandboxing enabled; `AXCANVAS_BROWSER_NO_SANDBOX=1` is reserved for disposable CI.
 
 GitHub Actions defines Windows/macOS/Linux core checks and an Ubuntu browser job; a workflow definition is not proof those runs passed. Feature documents' verification sections are historical records, not the current suite count.
 
+See [distribution/build/release instructions](docs/DISTRIBUTION.md). Release automation verifies native Windows x64, Linux glibc x64/arm64 and macOS x64/arm64 artifacts, with real browser checks on Linux x64. Publication is a separate manual opt-in workflow on a matching version tag, not an effect of npm pack or ordinary Git pushes. These workflow definitions do not claim that foreign-platform runs have already passed.
+
 [Contributor contract](AGENTS.md) · [Architecture](docs/DESIGN.md) · [Layout design](docs/LAYOUT-DESIGN.md) · [Flows](docs/FLOW-BOUNDARIES.md) · [Search](docs/GRAPH-SEARCH.md) · [Tags and neighborhood layout](docs/TAGS-AND-NEIGHBORHOOD.md) · [Changelog](CHANGELOG.md)
 
 ## License
 
 Original project code: [MIT](LICENSE). Dependencies retain their licenses. ELKjs is used under EPL-2.0, not relicensed as MIT. See [third-party notices](THIRD-PARTY-NOTICES.txt) and [ELK license](licenses/ELKjs-LICENSE.txt).
+
+Standalone builds additionally contain Bun and LGPL-covered runtime components; use `axcanvas --licenses` and the [runtime/relinking notice](docs/DISTRIBUTION.md#runtime-licensing-and-relinking).

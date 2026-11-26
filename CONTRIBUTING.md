@@ -6,9 +6,12 @@ Use Node.js >=24.16 and npm. From the repository root:
 npm ci
 npm run check
 npm run test:browser
+npm run test:package -- --browser
 ```
 
 The browser runner uses Puppeteer and a temporary loopback server/database. It requires no running axcanvas instance, agent account or LLM API key. npm installs its matching Chrome; an existing executable may be selected with PUPPETEER_EXECUTABLE_PATH. Browser screenshots are written under ignored test-results/.
+
+For standalone builds install Bun 1.4.2, then run `npm run build:binary` and `npm run test:binary -- --browser`. Source mode is `npm start`; do not invoke src/server.ts as an entrypoint. Package assets are generated from src/assets.ts once at build time; update that manifest when adding a browser resource. Never assume elkjs lives in a package-local node_modules directory. See docs/DISTRIBUTION.md for release gates and licensing.
 
 - Read AGENTS.md and the relevant design documents before changing behavior.
 - Documentation entry points: README.md for installation, docs/USER-GUIDE.md for tasks, docs/LAYOUT-DATA.md for geometry, docs/DESIGN.md for architecture. The live /agents.md is generated in src/agent.ts, not copied from AGENTS.md. Keep runtime instructions, descriptor text and actual schemas aligned.

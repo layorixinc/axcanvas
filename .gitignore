@@ -13,6 +13,8 @@ artifacts/
 coverage/
 test-results/
 *.tgz
+dist/
+dist-binaries/
 # Historical reports retain private infrastructure/session details locally.
 /docs/VERIFICATION.md
 /docs/*-VERIFICATION.md

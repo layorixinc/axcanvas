@@ -1,6 +1,4 @@
 import { parseArgs } from 'node:util';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 // No SDK or agent-specific code. Empty long-poll responses never produce output.
@@ -36,12 +34,17 @@ export async function waitForSubmission({ url, session, after = 0, timeoutMs = 0
   }
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+export async function runWatcher(args = process.argv.slice(2)) {
   const abort = new AbortController();
-  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => abort.abort(new Error('Watcher cancelled')));
+  const cancel = () => abort.abort(new Error('Watcher cancelled'));
+  for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, cancel);
   try {
-    const { values } = parseArgs({ options: { url: { type: 'string', default: 'http://127.0.0.1:43821' }, session: { type: 'string' }, after: { type: 'string', default: '0' }, 'timeout-ms': { type: 'string', default: '0' } }, strict: true });
+    const { values } = parseArgs({ args, options: { url: { type: 'string', default: 'http://127.0.0.1:43821' }, session: { type: 'string' }, after: { type: 'string', default: '0' }, 'timeout-ms': { type: 'string', default: '0' }, help: { type: 'boolean', short: 'h' } }, strict: true });
+    if (values.help) { console.log('axcanvas watch --url ORIGIN --session ID [--after N] [--timeout-ms N]\\nStart only with user approval through a native background command. Wait silently for one reviewed submission; never acknowledge on delivery.'); return; }
     const result = await waitForSubmission({ url: values.url, session: values.session, after: Number(values.after), timeoutMs: Number(values['timeout-ms']), signal: abort.signal });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) { console.error(`axcanvas watcher: ${error.message}`); process.exitCode = 1; }
+  finally { for (const signal of ['SIGINT', 'SIGTERM']) process.removeListener(signal, cancel); }
 }
+
+if (import.meta.main) await runWatcher();

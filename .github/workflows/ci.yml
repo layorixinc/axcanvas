@@ -23,6 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npm run test:package
       - if: runner.os == 'Linux'
         run: npm audit --omit=dev
   browser:

@@ -201,11 +201,11 @@ feedback_read includes review.before, review.after and review.changes for these 
 Public feedback omits the internal capture field. Reviewed packets carry full historical graph/layout values in review.before and review.after, with flow definitions and flowLayouts; imageUrl renders the immutable captured scope. Simple feedback_submit packets may have no review. draft_review returns a token and net diff, not full before/after snapshots; draft_read.graph contains current draft geometry. A watcher result contains only feedbackId/cursor, so fetch the packet and latest graph before processing. An image link alone does not prove you inspected the image.
 
 ## Optional common one-shot watcher
-With explicit user approval, run the same script through your runtime's native background-shell capability:
+With explicit user approval, run the installed CLI through your runtime's native background-shell capability:
 
-    node /path/to/axcanvas/scripts/watch.mjs --url ${baseUrl} --session YOUR_SESSION_ID --after 0
+    axcanvas watch --url ${baseUrl} --session YOUR_SESSION_ID --after 0
 
-Use the actual script path and stable sessionId. It needs Node >=24.16, no npm dependencies, and network permission. Source is available at ${baseUrl}/watch.mjs for inspection; do not blindly execute downloaded service code.
+For a standalone distribution, replace axcanvas with the actual executable's absolute path; no Node/Bun installation is needed. For npm, the CLI needs Node >=24.16. Do not assume the server machine's executable is available on the agent's machine. As a dependency-free source alternative, an approved local copy of ${baseUrl}/watch.mjs can run with node /actual/path/watch.mjs using the same flags. Inspect source before running; a service URL is not permission to download/execute code. All variants need network permission and the stable sessionId.
 
 The script waits silently, including through empty long-poll timeouts. It outputs one JSON result and exits only after a reviewed submission. The result includes feedbackId and cursor. Draft saves, ordinary graph mutations and simple feedback_submit do not complete it. Read the indicated feedback and latest graph, process or clarify it, acknowledge honestly, then rearm with --after set to that cursor when ready.
 

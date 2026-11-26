@@ -3,21 +3,29 @@
   "version": "0.1.0",
   "description": "Agent-neutral knowledge canvas with a local HTTP API",
   "license": "MIT",
-  "private": true,
+  "repository": { "type": "git", "url": "git+https://github.com/layorixinc/axcanvas.git" },
+  "bin": { "axcanvas": "dist/src/cli.js" },
+  "files": ["dist/", "docs/USER-GUIDE.md", "docs/LAYOUT-DATA.md", "docs/DISTRIBUTION.md", "docs/DESIGN.md", "docs/LAYOUT-DESIGN.md", "docs/REVIEW-WORKFLOW.md", "docs/SCOPED-FLOW-CONTRACT.md", "docs/FLOW-BOUNDARIES.md", "docs/MINIMAP-DESIGN.md", "docs/ENGLISH-DEFAULT.md", "docs/OPEN-SOURCE.md", "docs/WORKSPACE-IMPLEMENTATION.md", "docs/COMPACT-WORKSPACE.md", "docs/CENTER-SELECTION.md", "docs/GRAPH-SEARCH.md", "docs/TAGS-AND-NEIGHBORHOOD.md", "docs/images/", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "licenses/", "THIRD-PARTY-NOTICES.txt", "CHANGELOG.md"],
+  "publishConfig": { "access": "public" },
   "type": "module",
   "engines": { "node": ">=24.16.0" },
   "scripts": {
-    "start": "node src/server.ts",
+    "start": "node src/cli.ts",
+    "build": "node scripts/build.mjs",
+    "build:binary": "node scripts/build-binary.mjs",
+    "prepack": "npm run build",
     "test": "node --test --test-concurrency=1 tests/*.test.ts tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:browser": "node scripts/test-browser.mjs",
+    "test:package": "node scripts/test-package.mjs",
+    "test:binary": "node scripts/test-binary.mjs",
     "check": "npm test && npm run typecheck && node --check public/app.js && node --check public/layout.js && node --check public/workspace.js"
   },
   "dependencies": {
-    "elkjs": "0.12.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "elkjs": "0.12.1",
     "@types/node": "24.10.0",
     "puppeteer": "25.18.1",
     "typescript": "5.9.3"

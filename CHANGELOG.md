@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a shared axcanvas serve/watch CLI, source-independent prebuilt npm package and Bun standalone builds with embedded web/ELK Worker/license assets. Preserve loopback defaults and invocation-directory databases; add help/version/license output and explicit host/port/db flags.
+- Verify installed tarballs and standalone executables from empty consumer directories; add native-platform release artifacts/checksums and manual protected npm/GitHub publication gates. Include pinned runtime licensing and relinking instructions.
 - Review public documentation against current code; add task-oriented usage/keyboard guidance and an agent geometry reference covering coordinate frames, Flow layouts, storage and reviewed delivery. Align generated /agents.md, draft operation references, search/tag palettes and historical design status with the implementation.
 - Render node tags as high-contrast colored chips with automatic normalized-name colors and per-node palette overrides in Properties, review and feedback images. Preserve color metadata for older clients.
 - Search actual scoped flow boundaries using `is:start`, `is:end` and a Flow role filter; distinguish roles from classification tags.

@@ -1,28 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { GraphStore, GraphError } from './store.ts';
 import { AgentAPI, errorResponse, sessionIdSchema, publicFeedback } from './agent.ts';
 import { feedbackImage } from './feedback-image.ts';
 
-const assets: Record<string, [string, string]> = {
-  '/': ['index.html', 'text/html; charset=utf-8'],
-  '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
-  '/style.css': ['style.css', 'text/css; charset=utf-8'],
-  '/layout.js': ['layout.js', 'text/javascript; charset=utf-8'],
-  '/flows.js': ['flows.js', 'text/javascript; charset=utf-8'],
-  '/workspace.js': ['workspace.js', 'text/javascript; charset=utf-8'],
-  '/search.js': ['search.js', 'text/javascript; charset=utf-8'],
-  '/neighborhood.js': ['neighborhood.js', 'text/javascript; charset=utf-8'],
-  '/tags.js': ['tags.js', 'text/javascript; charset=utf-8'],
-  '/vendor/elk-api.js': ['../node_modules/elkjs/lib/elk-api.js', 'text/javascript; charset=utf-8'],
-  '/vendor/elk-worker.js': ['../node_modules/elkjs/lib/elk-worker.min.js', 'text/javascript; charset=utf-8'],
-  '/third-party-notices.txt': ['../THIRD-PARTY-NOTICES.txt', 'text/plain; charset=utf-8'],
-  '/licenses/elkjs.txt': ['../licenses/ELKjs-LICENSE.txt', 'text/plain; charset=utf-8'],
-  '/watch.mjs': ['../scripts/watch.mjs', 'text/javascript; charset=utf-8']
-};
+import { assets } from './assets.ts';
 function json(res: ServerResponse, status: number, value: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(value));
@@ -80,9 +63,9 @@ export async function startServer(options: ServerOptions = {}) {
       const baseUrl = publicUrl?.origin ?? `http://${host}`;
       const url = new URL(req.url ?? '/', `http://${host}`);
       if (req.method === 'GET' && Object.hasOwn(assets, url.pathname)) {
-        const [file, mime] = assets[url.pathname];
+        const [content, mime] = assets[url.pathname];
         res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
-        res.end(await readFile(new URL(`../public/${file}`, import.meta.url))); return;
+        res.end(content); return;
       }
       if (req.method === 'GET' && url.pathname === '/health') { json(res, 200, { service: 'axcanvas', status: 'pass', apiVersion: '1' }); return; }
       if (req.method === 'GET' && url.pathname === '/agents.md') { res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(api.guide(baseUrl)); return; }
@@ -150,12 +133,4 @@ export async function startServer(options: ServerOptions = {}) {
     const stopped = Promise.withResolvers<void>(); server.close(error => error ? stopped.reject(error) : stopped.resolve());
     await stopped.promise; store.close();
   } };
-}
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
-  const host = process.env.AXCANVAS_HOST ?? '127.0.0.1';
-  if (host !== '0.0.0.0' && host !== '127.0.0.1') throw new Error('AXCANVAS_HOST must be 0.0.0.0 or 127.0.0.1');
-  const app = await startServer({ port: Number(process.env.AXCANVAS_PORT ?? 43821), dbPath: process.env.AXCANVAS_DB, host, publicUrl: process.env.AXCANVAS_PUBLIC_URL, allowedHosts: process.env.AXCANVAS_ALLOWED_HOSTS?.split(',').map(h => h.trim()).filter(Boolean) });
-  console.log(`AXCANVAS_READY ${process.env.AXCANVAS_PUBLIC_URL ?? app.url} bind=${host}`);
-  const stop = async () => app.close();
-  process.on('SIGINT', stop); process.on('SIGTERM', stop);
 }

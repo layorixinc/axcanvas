@@ -1,0 +1,108 @@
+name: Distribution release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish npm and GitHub Release (select a matching vVERSION tag; requires release environment approval and npm trusted publishing)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: bun-windows-x64
+          - os: ubuntu-24.04
+            target: bun-linux-x64
+          - os: ubuntu-24.04-arm
+            target: bun-linux-arm64
+          - os: macos-15-intel
+            target: bun-darwin-x64
+          - os: macos-15
+            target: bun-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      PUPPETEER_SKIP_DOWNLOAD: ${{ matrix.target != 'bun-linux-x64' && 'true' || 'false' }}
+      AXCANVAS_BROWSER_NO_SANDBOX: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: npm ci
+      - run: npm run check
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+        run: node -e "const p=require('./package.json'); if(process.env.GITHUB_REF !== 'refs/tags/v'+p.version) throw Error('Select tag v'+p.version+' before publishing');"
+      - name: Test installed npm package
+        run: npm run test:package -- ${{ matrix.target == 'bun-linux-x64' && '--browser' || '' }}
+      - run: npm run build:binary -- --target ${{ matrix.target }}
+      - name: Test native standalone executable
+        run: npm run test:binary -- ${{ matrix.target == 'bun-linux-x64' && '--browser' || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist-binaries/
+          if-no-files-found: error
+      - name: Checksum exact tested npm tarball
+        if: matrix.target == 'bun-linux-x64'
+        run: cd artifacts && sha256sum *.tgz > npm.sha256
+      - uses: actions/upload-artifact@v4
+        if: matrix.target == 'bun-linux-x64'
+        with:
+          name: npm-package
+          path: |
+            artifacts/*.tgz
+            artifacts/npm.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: distribution-failure-${{ matrix.target }}
+          path: test-results/
+          if-no-files-found: ignore
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.16.0'
+          registry-url: https://registry.npmjs.org
+      - run: npm install --global npm@11.13.0
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+      - name: Publish exact verified artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node -e "const p=require('./package.json'); if(process.env.GITHUB_REF !== 'refs/tags/v'+p.version) throw Error('Tag/version mismatch');"
+          for hash in release-files/*.sha256; do (cd release-files && sha256sum -c "$(basename "$hash")"); done
+          npm publish release-files/axcanvas-*.tgz --ignore-scripts --access public
+          gh release create "$GITHUB_REF_NAME" release-files/* LICENSE licenses/Bun-LICENSE.md docs/DISTRIBUTION.md --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
