@@ -91,7 +91,7 @@ Selecting a result preserves zoom. An outside-scope result switches to Whole gra
 3. Open **Arrange**, choose Left → right or Top → bottom.
 4. Choose **Auto layout** for the complete scope, **Layout connected component** for every node reachable from the selection, or **Layout matching tags** for nodes sharing an original selected tag. The two region commands show their target count and are also in the selection context menu.
 
-Computation completion saves one draft operation immediately: there is no Apply button. **Cancel layout** is available only while computing. After saving, **Undo layout** restores this tab's last layout; document Undo/Redo is durable and separate. A partial layout keeps outside nodes fixed and may move the neighborhood away from occupied space.
+Computation completion saves one draft operation immediately: there is no Apply button. **Cancel layout** is available only while computing. After saving, **Undo layout** restores this tab's last layout; document Undo/Redo is durable and separate. A partial layout keeps outside nodes fixed and may move the complete target region away from occupied space.
 
 **Connected component** follows active connections in either direction until no more nodes are reachable, not just direct neighbors. Multiple selected nodes contribute all of their components. Scope membership still limits traversal.
 

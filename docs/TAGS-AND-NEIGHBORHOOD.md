@@ -1,4 +1,4 @@
-# Tags and selected-neighborhood layout
+# Tags and selected-region layout
 
 User steps: [Tag editing](USER-GUIDE.md#existing-nodes), [search](USER-GUIDE.md#4-search) and [arrangement](USER-GUIDE.md#5-choose-a-scope-and-arrange-it). This reference explains the data/implementation contract.
 
@@ -58,6 +58,14 @@ If another writer changed the graph, re-read and reconcile the revision conflict
 
 ## Selected-region layout contract
 
+| Arrange command | Target rule | Keyboard |
+| --- | --- | --- |
+| Auto layout | All active current-scope nodes | Arrange menu |
+| Layout connected component | Union of all components reachable from the selected nodes, ignoring edge direction | Shift+L in canvas/toolbox |
+| Layout matching tags | Any active current-scope node sharing an original selected tag; disconnected matches included | Arrange or context menu |
+
+For `A → B → C`, selecting A and running Connected component includes A, B and C. For selected tags `{backend}`, a match `{backend,database}` does not make `{database}` nodes eligible. Matching tags is a filter against the original selection, not a second graph traversal. Counts include only eligible target nodes; no selected tags means zero targets and a disabled command.
+
 - **Layout connected component** replaces the one-hop command in Arrange/context menus and Shift+L (canvas/toolbox focus). Traverse active incoming/outgoing edges recursively within the current scope; multiple seeds select the union of their components. Selected isolated nodes remain included. Retired nodes/edges and nonmember edges never bridge components.
 - **Layout matching tags** is a separate Arrange/context action. Form the union of NFKC/lowercase tags on the originally selected active in-scope nodes. Include every active in-scope node whose tags intersect that union, even if disconnected. Do not propagate new tags from matches, require all tags, compare colors or infer START/END roles. Untagged selected nodes are excluded; an empty tag union disables the command.
 - Display each command's target count before execution. Whole-scope Auto layout remains separate. All selectors use the current draft, not an older canonical graph, and freeze selection/targets for the calculation.
@@ -76,7 +84,7 @@ If another writer changed the graph, re-read and reconcile the revision conflict
 
 ## Observed verification
 
-Status: implemented and deployed to the existing local server.
+The bullets below record the original direct-neighbor release and its earlier deployed checks, not the current target-selection rules or current suite count. Current connected-component/tag-region evidence follows in the next verification section.
 
 - Missing-tag HTTP writes, exact-tag searches, the absent neighborhood module/operation and absent Arrange action established failing baselines before implementation.
 - Passing focused coverage: four tag HTTP/storage tests, three region transaction tests, six search tests and five real ELK neighborhood tests. Coverage includes omitted-tag compatibility, explicit clearing, atomic validation, durable review/rebase/Undo, retired outside coordinates, scope isolation, route retention/invalidation, collision placement and bounds.

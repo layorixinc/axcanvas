@@ -56,13 +56,66 @@ Supported targets are bun-windows-x64, bun-linux-x64, bun-linux-arm64, bun-darwi
 
 ## Publishing
 
-1. Update application version and lockfile together; review notices, compiler pin and relevant platform support. Create/push its matching `vVERSION` tag only after review.
-2. The Distribution release workflow builds and verifies five native targets. Tag pushes and default manual runs upload **workflow artifacts only**, not an npm package or public GitHub Release.
-3. Configure the GitHub `release` environment with required reviewers. Configure npm trusted publishing for repository layorixinc/axcanvas, workflow release.yml and environment release, explicitly permitting direct npm publish. The first registry package/name/account setup must be completed by its owner; an empty registry lookup does not grant ownership.
-4. Manually run Distribution release on the matching tag with `publish` enabled. After all native jobs pass and environment approval, it verifies hashes and publishes the exact tested npm tarball with install/build scripts disabled, then creates the GitHub Release containing binaries, checksums and notices. A branch/ref mismatch fails before publication. No long-lived npm token is embedded.
-5. GitHub's tag source archives identify the corresponding application source/build scripts. Retain those tags and the pinned compiler source references so recipients can rebuild modified versions.
+Local package builds and ordinary main-branch pushes publish nothing. The current workflow can publish both npm and GitHub Releases only when manually dispatched on a matching version tag with publish enabled, after all native verification jobs pass. The npm account, package ownership and protected environment are external prerequisites.
 
-Npm publication and GitHub release creation are external irreversible/public operations; they are not run by local checks or ordinary main-branch pushes. Workflow configuration is not evidence that the npm account, approvals or foreign runners have been exercised. If publication partially succeeds, inspect registry/release state before retrying; published versions cannot be overwritten.
+### First npm publication
+
+The current package name/version is axcanvas@0.1.0, unscoped/public. Registry lookup does not reserve a name or prove it can be registered. If npm rejects the name or another owner claims it, choose an owned scope/name and update package metadata, lockfile, examples and release commands before rebuilding; do not publish under an unrelated identity.
+
+1. Create/sign in to the intended npm account, verify its email and enable account 2FA. Use interactive login rather than sharing a password, OTP or token in chat.
+2. From this repository, log in to the public registry and confirm the publishing identity:
+
+   ```sh
+   npm login --registry=https://registry.npmjs.org
+   npm whoami --registry=https://registry.npmjs.org
+   ```
+
+3. Test the current source and create/install the exact tarball. The package test leaves the artifact under artifacts/; do not substitute an older tarball:
+
+   ```sh
+   npm run check
+   npm run test:package -- --browser
+   ```
+
+4. Review its contents, then publish that artifact once. The following publish command is a public external action, not a test; complete the npm 2FA prompt interactively:
+
+   ```sh
+   npm publish ./artifacts/axcanvas-0.1.0.tgz --ignore-scripts --access public --registry=https://registry.npmjs.org
+   ```
+
+5. Check registry metadata and the installed command:
+
+   ```sh
+   npm view axcanvas@0.1.0 version dist.integrity --registry=https://registry.npmjs.org
+   npx --registry=https://registry.npmjs.org axcanvas@0.1.0 --version
+   ```
+
+The owner must perform/authorize the initial publication. Successful local installation does not prove npm ownership, login, email/2FA status or registry acceptance. These instructions use a manual first publication because the trusted-publisher form is configured in an existing package's settings. npm also supports staged publication, but this repository's workflow currently uses direct npm publish, not stage/approve.
+
+### Subsequent releases through GitHub Actions
+
+After the first package exists:
+
+1. In GitHub repository Settings → Environments, create release and configure required reviewers.
+2. In npm package Settings → Trusted publishing, add GitHub Actions with these exact values:
+
+   | Field | Value |
+   | --- | --- |
+   | Organization or user | layorixinc |
+   | Repository | axcanvas |
+   | Workflow filename | release.yml |
+   | Environment name | release |
+   | Allowed actions | Enable direct npm publish; stage-only permission cannot run this workflow |
+
+   Trusted publishing needs npm >=11.5.1 and Node >=22.14; the workflow pins npm 11.13.0 and Node 24.16. A new trusted publisher must successfully publish within two days or be recreated. Configure it near the first CI release. Do not store a long-lived NPM_TOKEN for this flow.
+3. Increase application version and lockfile to a **new unpublished version**, for example 0.1.1 after a manual 0.1.0 bootstrap. Review/commit the changes and create/push matching tag v0.1.1. The tag workflow builds five native targets and uploads artifacts only.
+4. In GitHub Actions → Distribution release → Run workflow, select that matching tag and enable publish. Approve the release environment after all verification jobs pass. The job checks hashes, publishes the tested npm tarball without rebuilding it, then creates the public GitHub Release with binaries/checksums/notices.
+
+**Do not enable publish on v0.1.0 if 0.1.0 was already published manually.** npm never permits overwriting a published name/version, even after unpublish. A non-publishing tag run can still build its binaries; the current combined publication job is not a way to create a GitHub-only release for an already-published npm version.
+
+Retain corresponding application source tags and pinned compiler source references for rebuilding/relinking. If publication partially succeeds, inspect npm/GitHub state before retrying; neither success on one platform nor a workflow definition proves a complete release. No actual registry publication is performed by documentation checks.
+
+Official requirements: [public packages](https://docs.npmjs.com/creating-and-publishing-unscoped-public-packages/), [2FA](https://docs.npmjs.com/requiring-2fa-for-package-publishing-and-settings-modification/), [trusted publishers](https://docs.npmjs.com/trusted-publishers/) and [npm publish](https://docs.npmjs.com/cli/v11/commands/npm-publish/).
 
 ## Runtime licensing and relinking
 

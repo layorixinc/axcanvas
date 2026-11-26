@@ -209,7 +209,7 @@ GitHub Actions defines Windows/macOS/Linux core checks and an Ubuntu browser job
 
 See [distribution/build/release instructions](docs/DISTRIBUTION.md). Release automation verifies native Windows x64, Linux glibc x64/arm64 and macOS x64/arm64 artifacts, with real browser checks on Linux x64. Publication is a separate manual opt-in workflow on a matching version tag, not an effect of npm pack or ordinary Git pushes. These workflow definitions do not claim that foreign-platform runs have already passed.
 
-[Contributor contract](AGENTS.md) · [Architecture](docs/DESIGN.md) · [Layout design](docs/LAYOUT-DESIGN.md) · [Flows](docs/FLOW-BOUNDARIES.md) · [Search](docs/GRAPH-SEARCH.md) · [Tags and neighborhood layout](docs/TAGS-AND-NEIGHBORHOOD.md) · [Changelog](CHANGELOG.md)
+[Contributor contract](AGENTS.md) · [Architecture](docs/DESIGN.md) · [Layout design](docs/LAYOUT-DESIGN.md) · [Flows](docs/FLOW-BOUNDARIES.md) · [Search](docs/GRAPH-SEARCH.md) · [Tags and selected-region layout](docs/TAGS-AND-NEIGHBORHOOD.md) · [First npm publication](docs/DISTRIBUTION.md#first-npm-publication) · [Changelog](CHANGELOG.md)
 
 ## License
 

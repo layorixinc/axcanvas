@@ -42,4 +42,4 @@ Status: implemented and deployed to the existing local server.
 - On an existing live graph, searching `grouped Undo` selected and centered the real node at 178% zoom with zero CSS-pixel horizontal/vertical error, preserving Hand mode, canonical data, draft and feedback. No API mutation request was emitted.
 - Screenshots and live proof remain in ignored artifacts. No extra model session, external search service or GitHub CI run was used for this verification.
 
-The observations above describe the initial search release, not the current test count. Subsequent tag and boundary-role support is covered in tests/search.test.mjs and the palette/role verification record in [Tags and neighborhood layout](TAGS-AND-NEIGHBORHOOD.md#tag-colors-and-boundary-search).
+The observations above describe the initial search release, not the current test count. Subsequent tag and boundary-role support is covered in tests/search.test.mjs and the palette/role verification record in [Tags and selected-region layout](TAGS-AND-NEIGHBORHOOD.md#tag-colors-and-boundary-search).

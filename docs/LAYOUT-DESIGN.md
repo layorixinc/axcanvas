@@ -30,7 +30,7 @@ Agents can still use canonical graph_layout with baseRevision, baseLayoutRevisio
 ## Rendering
 public/layout.js shares pure conversion between browser and Node tests. Serve the pinned ELK client/Worker only through explicit same-origin asset URLs. Keep worker-src self and never expose arbitrary node_modules or use an external CDN.
 
-Include routes and label boxes in Fit graph bounds. Shorten displayed labels while exposing the original through SVG titles and the selected node's relationship list. Focus connections is off by default; Ctrl+node click focuses its neighborhood, ordinary selection clears focus. During node drag, draw connections to the current position rather than using stored routes.
+Include routes and label boxes in Fit graph bounds. Shorten displayed labels while exposing the original through SVG titles and the selected node's relationship list. Focus connections is off by default; Ctrl+node click highlights direct connections, ordinary selection clears focus. Expanding the layout target to a connected component does not expand this separate highlighting behavior. During node drag, draw connections to the current position rather than using stored routes.
 
 ## Verification
 - Observe initial regression failures for unsupported HTTP layout fields and the missing computation module.

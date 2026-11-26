@@ -45,7 +45,7 @@ Node IDs join content to positions; edge IDs join relationships to routes. A sha
 }
 ```
 
-The excerpt's `turn-2` is meaningful only if an active flow definition with that ID exists and includes `result`. Directions describe saved view arrangement, not execution order. A neighborhood layout preserves the previous whole-view direction even if the neighborhood was arranged on another axis.
+The excerpt's `turn-2` is meaningful only if an active flow definition with that ID exists and includes `result`. Directions describe saved view arrangement, not execution order. Both connected-component and matching-tag region layouts preserve the previous whole-view direction even when their selected region is arranged on another axis.
 
 ## Coordinates and line shapes
 

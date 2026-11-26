@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Align region-layout terminology and examples across the user/reference documents; document first interactive npm publication, 2FA prerequisites and the subsequent trusted-publisher workflow, including the prohibition on republishing an existing version.
 - Expand selected-node layout from direct neighbors to complete active in-scope connected components, retaining Shift+L. Add a separate Matching tags layout using the original selected-tag union without transitive tag expansion, including disconnected matches and excluding untagged seeds. Show target counts in Arrange/context menus; preserve outside geometry, exact Undo and final reviewed submission.
 - Add a shared axcanvas serve/watch CLI, source-independent prebuilt npm package and Bun standalone builds with embedded web/ELK Worker/license assets. Preserve loopback defaults and invocation-directory databases; add help/version/license output and explicit host/port/db flags.
 - Verify installed tarballs and standalone executables from empty consumer directories; add native-platform release artifacts/checksums and manual protected npm/GitHub publication gates. Include pinned runtime licensing and relinking instructions.
