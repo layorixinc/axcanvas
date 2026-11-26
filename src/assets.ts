@@ -6,7 +6,7 @@ const javascript = 'text/javascript; charset=utf-8';
 const plain = 'text/plain; charset=utf-8';
 const files: Record<string, [URL | string, string]> = {
   '/': [new URL('../public/index.html', import.meta.url), 'text/html; charset=utf-8'],
-  ...Object.fromEntries(['app', 'layout', 'flows', 'workspace', 'search', 'neighborhood', 'tags'].map(name => [`/${name}.js`, [new URL(`../public/${name}.js`, import.meta.url), javascript]])),
+  ...Object.fromEntries(['app', 'layout', 'flows', 'workspace', 'search', 'regions', 'tags'].map(name => [`/${name}.js`, [new URL(`../public/${name}.js`, import.meta.url), javascript]])),
   '/style.css': [new URL('../public/style.css', import.meta.url), 'text/css; charset=utf-8'],
   '/vendor/elk-api.js': [require.resolve('elkjs/lib/elk-api.js'), javascript],
   '/vendor/elk-worker.js': [require.resolve('elkjs/lib/elk-worker.min.js'), javascript],

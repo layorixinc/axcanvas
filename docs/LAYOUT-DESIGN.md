@@ -3,7 +3,7 @@
 User steps: [Arrange a scope](USER-GUIDE.md#5-choose-a-scope-and-arrange-it). Agent-readable field paths, coordinate conventions, initial fallbacks and delivery snapshots: [Layout data](LAYOUT-DATA.md). This design describes current layout computation; graph_layout only saves caller-supplied geometry.
 
 ## Workflow
-Choose Left → right or Top → bottom, then run Auto layout. A successful calculation immediately saves positions/routes/labels to the durable draft in one undoable operation; there is no preview/Apply step. Cancel is available only while computing, before any write starts. Undo layout restores this tab's most recent saved draft layout; persistent draft Undo/Redo is separate. Final reviewed Submit still publishes the graph/layout together. Selected + connected uses the same lifecycle for its isolated neighborhood.
+Choose Left → right or Top → bottom, then run Auto layout. A successful calculation immediately saves positions/routes/labels to the durable draft in one undoable operation; there is no preview/Apply step. Cancel is available only while computing, before any write starts. Undo layout restores this tab's most recent saved draft layout; persistent draft Undo/Redo is separate. Final reviewed Submit still publishes the graph/layout together. Connected component and Matching tags use the same lifecycle for their isolated region: recursive undirected connectivity or direct overlap with the original selected-tag union, respectively. Both are restricted to active current-scope content and show exact target counts.
 
 ## Invariants
 - Never auto-layout after every answer or change semantic nodes, relationships, sources or feedback.

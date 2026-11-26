@@ -3,7 +3,7 @@ import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 import { flowView, boundaryRoles } from '/flows.js';
 import { initWorkspace } from '/workspace.js';
 import { initGraphSearch } from '/search.js';
-import { selectedNeighborhood, placeNeighborhood, regionBounds } from '/neighborhood.js';
+import { layoutTargetIds, selectedRegion, placeRegion, regionBounds } from '/regions.js';
 import { TAG_PALETTE, tagKey, tagChips, tagColor } from '/tags.js';
 
 const $ = id => document.getElementById(id);
@@ -634,13 +634,18 @@ window.addEventListener('hashchange', async () => {
 function hasUnsaved() { return dirty || edgeDirty || instructionDirty || flowDirty; }
 function hasDraft() { return hasUnsaved() || strokes.length > 0; }
 function layoutLocked() { return !!(layoutJob || layoutSaving); }
-function canLayoutNeighborhood() {
-  return !!(graph && !draftConflict && !layoutLocked() && !pending && !hasDraft() && !reviewBusy && !dragging && !gesture && !connector && !document.querySelector('dialog[open]') && activeNodes().some(node => node.status !== 'retired' && selection.has(node.id)));
+function canLayoutRegion() {
+  return !!(graph && !draftConflict && !layoutLocked() && !pending && !hasDraft() && !reviewBusy && !dragging && !gesture && !connector && !document.querySelector('dialog[open]'));
 }
+function regionCount(mode) { return graph ? layoutTargetIds(flowView(graph, activeFlowId), selection, mode).length : 0; }
 function layoutControls() {
   const locked = layoutLocked() || pending > 0 || reviewBusy, unsaved = hasDraft(), available = !!graph && activeNodes().some(n => n.status !== 'retired');
   $('auto-layout').disabled = !available || locked || unsaved || draftConflict;
-  $('auto-layout-neighborhood').disabled = !canLayoutNeighborhood();
+  for (const mode of ['connected', 'tags']) {
+    const count = regionCount(mode), button = $(`auto-layout-${mode}`);
+    button.disabled = !canLayoutRegion() || count === 0;
+    button.textContent = `${mode === 'connected' ? 'Layout connected component' : 'Layout matching tags'} (${count})`;
+  }
   $('auto-layout').textContent = layoutJob ? 'Computing…' : 'Auto layout';
   $('cancel-layout').hidden = !layoutJob;
   $('undo-layout').disabled = !layoutUndo || locked || unsaved;
@@ -671,16 +676,16 @@ function cancelLayout(reason = '') {
 }
 async function runLayout(mode = 'scope') {
   if (!graph || layoutLocked() || pending || hasDraft() || reviewBusy || draftConflict) return;
-  if (mode === 'neighborhood' && !canLayoutNeighborhood()) { notice('Select active nodes and finish forms, drawings or gestures before laying out their neighborhood.'); return; }
+  if (mode !== 'scope' && (!canLayoutRegion() || !regionCount(mode))) { notice(mode === 'tags' ? 'Select active nodes with tags and finish forms, drawings or gestures before laying out tag matches.' : 'Select active nodes and finish forms, drawings or gestures before laying out their connected components.'); return; }
   const cancelled = Promise.withResolvers();
-  const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), mode, selectedIds: mode === 'neighborhood' ? [...selection] : null, direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
+  const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), mode, selectedIds: mode !== 'scope' ? [...selection] : null, direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
   let saving = false;
   layoutJob = job; layoutControls();
   job.timer = setTimeout(() => job.reject(new Error('Layout exceeded 30 seconds. The existing layout is preserved.')), 30000);
   try {
     await Promise.race([document.fonts.ready, cancelled.promise]);
     if (layoutJob !== job) return;
-    const region = job.mode === 'neighborhood' ? selectedNeighborhood(job.snapshot, job.flowId, job.selectedIds) : null;
+    const region = job.mode !== 'scope' ? selectedRegion(job.snapshot, job.flowId, job.selectedIds, job.mode) : null;
     const inputGraph = region?.graph ?? job.snapshot, inputFlowId = region ? null : job.flowId;
     const measure = document.createElement('canvas').getContext('2d');
     if (!measure || typeof window.ELK !== 'function') throw new Error('The layout engine or font measurement is unavailable.');
@@ -699,14 +704,14 @@ async function runLayout(mode = 'scope') {
     if (layoutJob !== job) return;
     if (!layoutMatches(job)) throw new Error('The draft or selected flow changed. Calculate a fresh layout.');
     const computed = extractLayout(output, job.direction, inputGraph, inputFlowId);
-    const patch = region ? placeNeighborhood(job.snapshot, job.flowId, region, computed, job.direction) : null;
+    const patch = region ? placeRegion(job.snapshot, job.flowId, region, computed, job.direction) : null;
     const cameraBefore = { ...camera };
     clearTimeout(job.timer); job.elk.terminateWorker(); job.elk = null;
     layoutJob = null; saving = true; layoutSaving = true; layoutControls();
     await changeDraft(patch ? { type: 'layout_region', nodeIds: region.nodeIds, ...patch, flowId: job.flowId } : { type: 'layout', ...computed, flowId: job.flowId });
     layoutUndo = { sessionId: job.sessionId, draftId: job.draftId, flowId: job.flowId, version: draft.version, cameraBefore };
     if (patch) fitRegion(patch); else fit();
-    notice(patch ? `Selected neighborhood layout saved to draft (${region.nodeIds.length} nodes).` : 'Auto layout saved to draft.');
+    notice(patch ? `${job.mode === 'tags' ? 'Matching tags' : 'Connected component'} layout saved to draft (${region.nodeIds.length} nodes).` : 'Auto layout saved to draft.');
   } catch (error) { if (saving || layoutJob === job) notice(`Could not ${saving ? 'save' : 'compute'} layout: ${error.message}`); }
   finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; if (saving) layoutSaving = false; layoutControls(); if (saving) draw(); }
 }
@@ -721,7 +726,7 @@ async function undoLayout() {
   finally { layoutSaving = false; layoutControls(); draw(); }
 }
 $('auto-layout').onclick = () => runLayout();
-$('auto-layout-neighborhood').onclick = () => runLayout('neighborhood');
+for (const mode of ['connected', 'tags']) $(`auto-layout-${mode}`).onclick = () => runLayout(mode);
 $('cancel-layout').onclick = () => cancelLayout();
 $('undo-layout').onclick = undoLayout;
 $('focus-relations').onchange = draw;
@@ -1101,7 +1106,7 @@ async function pasteSelection() {
 }
 async function dispatchCommand(command) {
   if (command === 'center-selection') { await centerSelection(); return; }
-  if (command === 'layout-neighborhood') { await runLayout('neighborhood'); return; }
+  if (command === 'layout-connected' || command === 'layout-tags') { await runLayout(command.slice('layout-'.length)); return; }
   if (command.startsWith('node-kind:')) {
     const kind = command.slice('node-kind:'.length);
     if (Object.hasOwn(names, kind)) { placementKind = kind; if (newNode) { $('node-type').value = kind; dirty = true; layoutControls(); } }
@@ -1171,7 +1176,7 @@ document.addEventListener('keydown', event => {
   }
   if (event.altKey) return;
   if (key === 'f' && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); centerSelection(); return; }
-  if (key === 'l' && event.shiftKey && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); runLayout('neighborhood'); return; }
+  if (key === 'l' && event.shiftKey && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); runLayout('connected'); return; }
   if (event.code === 'Space') { if (event.target.closest?.('button')) return; event.preventDefault(); if (!spaceTool) { spaceTool = tool; workspace.setTool('hand'); } return; }
   if (key === 'escape') { event.preventDefault(); cancelGesture(); return; }
   if (event.key.startsWith('Arrow') && selection.size) { event.preventDefault(); dispatchCommand(`nudge:${event.key}:${event.shiftKey ? 10 : 1}`).catch(saveFailure); return; }
@@ -1188,11 +1193,11 @@ $('canvas').addEventListener('contextmenu', event => {
   if (clean && id && !selection.has(id)) select(id, true);
   const menu = document.createElement('div'); menu.id = 'canvas-context-menu'; menu.setAttribute('role', 'menu');
   Object.assign(menu.style, { position: 'fixed', left: `${Math.min(event.clientX, innerWidth - 210)}px`, top: `${Math.min(event.clientY, innerHeight - 320)}px`, zIndex: '100', background: '#17212f', padding: '8px', border: '1px solid #8aabff', display: 'grid' });
-  const commands = [['center-selection', 'Center selection'], ['layout-neighborhood', 'Layout selected + connected'], ...(clean ? [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']] : [])];
+  const commands = [['center-selection', 'Center selection'], ['layout-connected', `Layout connected component (${regionCount('connected')})`], ['layout-tags', `Layout matching tags (${regionCount('tags')})`], ...(clean ? [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']] : [])];
   for (const [command, text] of commands) {
     const button = document.createElement('button'); button.textContent = text; button.setAttribute('role', 'menuitem'); button.dataset.command = command;
     if (command === 'center-selection') button.disabled = !canCenterSelection();
-    if (command === 'layout-neighborhood') button.disabled = !canLayoutNeighborhood();
+    if (command === 'layout-connected' || command === 'layout-tags') button.disabled = !canLayoutRegion() || regionCount(command.slice('layout-'.length)) === 0;
     button.onclick = () => { menu.remove(); dispatchCommand(command).catch(saveFailure); }; menu.append(button);
   }
   document.body.append(menu); menu.firstElementChild.focus();

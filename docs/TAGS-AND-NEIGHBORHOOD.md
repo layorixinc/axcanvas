@@ -56,22 +56,23 @@ await call('graph_commit', {
 
 If another writer changed the graph, re-read and reconcile the revision conflict; do not blindly retry an old node snapshot. An AI instruction can specify: “In this canvas session, add backend and 설계 tags to node NODE_ID, keeping its existing tags and other fields.” This is an explicit graph update, not a tag inferred automatically from the conversation.
 
-## Selected + connected layout
+## Selected-region layout contract
 
-- One explicit `Layout selected + connected` action in Arrange and the selection context menu; Shift+L in canvas/toolbox keyboard context. Existing Auto layout still arranges the entire current scope.
-- Targets are selected active visible nodes plus their immediate incoming/outgoing active neighbors in the current scope (one hop, not recursive connected-component expansion). Include all induced internal edges, self-links and parallel edges. Ignore retired/outside-scope nodes/edges. Support multiple seeds and isolated selected nodes.
-- Project this temporary neighborhood into the existing native ELK Worker; do not create persistent flows, clone semantic nodes or alter membership. Boundary roles apply within the projected neighborhood; whole-scope boundary-band guarantees remain the responsibility of whole-scope Auto layout. Keep outside nodes fixed.
-- Translate the resulting nodes, routes and labels rigidly back near the neighborhood's previous center. If that region collides with fixed outside geometry, place the entire neighborhood beyond that geometry on the chosen layout axis. Reject out-of-range coordinates rather than clamp. Do not move outside nodes to make space.
-- Merge only target positions/internal routes into the current view. Preserve unrelated positions/routes byte-for-byte; remove stale routes crossing the target boundary so ordinary rendering reconnects their fixed endpoints. Preserve other flow layouts/global coordinates. Keep the existing whole-view direction metadata for a partial layout.
-- Computation cancellation persists nothing. Worker completion immediately saves one version-checked `layout_region` draft operation with exact target IDs/positions and internal routes, preserving even legacy retired outside coordinates. There is no preview/Apply step. Layout Undo and draft Undo restore the exact prior view. Preserve selection/tool. Existing draft/canonical version checks, Worker cleanup, drawing/dirty-form guards and final reviewed publication remain in force. Frame the saved neighborhood for inspection.
+- **Layout connected component** replaces the one-hop command in Arrange/context menus and Shift+L (canvas/toolbox focus). Traverse active incoming/outgoing edges recursively within the current scope; multiple seeds select the union of their components. Selected isolated nodes remain included. Retired nodes/edges and nonmember edges never bridge components.
+- **Layout matching tags** is a separate Arrange/context action. Form the union of NFKC/lowercase tags on the originally selected active in-scope nodes. Include every active in-scope node whose tags intersect that union, even if disconnected. Do not propagate new tags from matches, require all tags, compare colors or infer START/END roles. Untagged selected nodes are excluded; an empty tag union disables the command.
+- Display each command's target count before execution. Whole-scope Auto layout remains separate. All selectors use the current draft, not an older canonical graph, and freeze selection/targets for the calculation.
+- Project only the chosen nodes and their existing induced internal edges (including self/parallel edges) into the existing native ELK Worker. Do not create flows, clone nodes, add semantic relationships or alter membership. Apply boundary roles only within that projected region; whole-scope boundary guarantees remain the responsibility of whole-scope Auto layout.
+- Translate computed nodes/bends/labels together near the previous region center; if occupied by fixed outside geometry, place the whole region beyond it on the chosen axis. Reject out-of-range coordinates without clamping. Outside nodes never move to make space.
+- Merge one layout_region checkpoint into the active view: preserve outside positions/unrelated routes and other views, invalidate crossing routes, and retain the prior whole-view direction. Tag sets and semantic IDs/content remain unchanged.
+- Completion immediately saves to draft with no Apply. Computation cancellation writes nothing; layout/draft Undo restores exact prior geometry. Keep dirty-form/drawing/gesture/IME/modal guards, canonical/draft CAS checks, native Worker cleanup, preserved selection/tool and final reviewed publication. Both installed distributions must embed the updated UI/module and run real browser coverage.
 
 ## Verification acceptance
 
 - Establish uncovered tag API/search and neighborhood behavior failures before implementation.
 - API: tag round-trip and explicit clear; omitted-tag preservation; invalid/duplicate tags rejected atomically; legacy compatibility; durable draft/rebase/review/submission and Undo/Redo.
 - Search: ordinary/exact hash/multiple hash/mixed terms, normalization and no false match in non-tag fields.
-- Real ELK geometry: one-hop projection, scope isolation, selected isolated/self/parallel nodes, unchanged outside positions/unrelated routes, crossing-route invalidation, collision translation and coordinate limits.
-- Real browser: AI-authored tags appear/search, human tags save/reload/Undo; neighborhood actions and shortcuts immediately save one checkpoint while unrelated nodes and canonical data stay unchanged. Verify exact Undo, computation cancellation and failed-save preservation. Existing workflows must still pass.
+- Real ELK geometry: recursive/cyclic multi-seed connectivity; direct selected-tag overlap without chaining; scope/retirement isolation, empty tags, normalized tags, self/parallel edges, fixed outside geometry, crossing routes, collision translation and limits.
+- Real browser: tags appear/search/save/reload/Undo; both region commands show accurate counts, save one checkpoint, preserve outside/canonical data and support exact Undo. Exercise shortcut/context commands, scoped tag matches, disconnected matches, no tag propagation, untagged seed exclusion, reload and final reviewed publication in both installed distributions.
 
 ## Observed verification
 
@@ -83,3 +84,11 @@ Status: implemented and deployed to the existing local server.
 - The documented AI tagging snippet was executed against an isolated real HTTP server: it preserved an existing tag and node detail while adding backend and 설계. Twenty local documentation links resolved.
 - Initial deployed verification (before the immediate-save cutover): an AI-authored node retained search/frontend tags and gained backend/설계. Exact tag search found it. Native Chromium exercised its three-node neighborhood and exact Undo without moving outside nodes, changing START/END metadata, publishing canonical data or submitting feedback.
 - The managed browser's instrumented Worker could not load under the existing CSP; deployed layout verification used a native uninstrumented Chromium page. No CSP relaxation, fake Worker or fallback layout was added. Private screenshots/proof remain in ignored artifacts. No new paid model session or GitHub CI run is claimed.
+
+## Connected-component and matching-tag verification — 2026-11-26
+
+- TDD observed three failures before implementation: incomplete recursive traversal, missing disconnected tag matches and incorrect retirement/tag targeting.
+- Final npm run check passed 85 tests plus TypeScript/syntax checks. The complete source Chrome suite passed; both installed npm and Windows x64 standalone variants also ran the same nine tag/region browser scenarios with native ELK Workers.
+- Browser coverage exercised all five nodes of a multi-hop component, scoped traversal, Shift+L/context access, isolated multi-seeds, exact target counts, original-tag matching without chaining, disconnected matches, empty-tag disablement, mixed tagged/untagged selection, outside/crossing route behavior, one-checkpoint Undo, reload and final reviewed publication.
+- Rebuilt the npm tarball and Windows executable/checksum. Backed up the existing local database before restarting the owned service on the shared CLI; inspected both new Arrange controls on the deployed page without rearranging an existing user document.
+- Other-platform binaries/CI, npm publication and GitHub Releases were not exercised or published. No paid model session was started. Earlier one-hop verification above is historical, not the current command contract.

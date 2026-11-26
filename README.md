@@ -78,7 +78,7 @@ The server does **not** collect transcripts, detect turns, interrupt a CLI or fo
 
 1. Open the canvas link. Select a node to edit **Properties**, or use **Add node / Connect** to create content.
 2. Existing valid fields autosave to a **durable draft**. New objects require an explicit save. Check the bottom save state.
-3. Choose **Scope**, then optionally **Arrange → Auto layout** or **Layout selected + connected**. Completion saves directly to the draft; there is no Apply step.
+3. Choose **Scope**, then **Arrange → Auto layout** for the whole view, **Layout connected component** for all transitively connected nodes, or **Layout matching tags** for nodes sharing an original selected tag. Region commands show target counts and keep outside nodes fixed. Completion saves directly to the draft; there is no Apply step.
 4. Add instructions in **Inspector → Agent** or draw annotations. Choose **Review changes** to inspect the complete work.
 5. Choose **Submit to agent** to publish once and queue one immutable packet. Saving or opening Review does not notify the watcher.
 

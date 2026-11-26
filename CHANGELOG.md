@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Expand selected-node layout from direct neighbors to complete active in-scope connected components, retaining Shift+L. Add a separate Matching tags layout using the original selected-tag union without transitive tag expansion, including disconnected matches and excluding untagged seeds. Show target counts in Arrange/context menus; preserve outside geometry, exact Undo and final reviewed submission.
 - Add a shared axcanvas serve/watch CLI, source-independent prebuilt npm package and Bun standalone builds with embedded web/ELK Worker/license assets. Preserve loopback defaults and invocation-directory databases; add help/version/license output and explicit host/port/db flags.
 - Verify installed tarballs and standalone executables from empty consumer directories; add native-platform release artifacts/checksums and manual protected npm/GitHub publication gates. Include pinned runtime licensing and relinking instructions.
 - Review public documentation against current code; add task-oriented usage/keyboard guidance and an agent geometry reference covering coordinate frames, Flow layouts, storage and reviewed delivery. Align generated /agents.md, draft operation references, search/tag palettes and historical design status with the implementation.
@@ -10,7 +11,7 @@
 - Save both whole-scope and selected-neighborhood layout directly to the draft when computation completes. Remove the preview/Apply step; retain computation cancellation, exact Undo and final reviewed submission. Reject newer canonical/draft revisions atomically rather than saving stale geometry.
 
 - Add optional node tags across agent writes, human Properties, draft/review/rebase/history and search. Support exact `#tag` queries while preserving omitted tags for older clients; keep classification separate from scoped START/END roles.
-- Add selected-plus-direct-neighbor layout through Arrange, the context menu and Shift+L. Compute only the projected neighborhood, preserve outside geometry, and apply it as one undoable draft operation.
+- Add partial-region layout through Arrange/context commands, with native Worker computation and one undoable draft save. Connected-component and tag-overlap targeting share geometry preservation and collision placement.
 
 - Add indexed graph search with ranked multi-field literal matching, Unicode normalization, scope/type filters, visible match highlights, keyboard navigation and zoom-preserving result selection. Preserve drafts and captured drawing frames; document Graphify research and matching limitations.
 

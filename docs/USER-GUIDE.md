@@ -89,9 +89,13 @@ Selecting a result preserves zoom. An outside-scope result switches to Whole gra
 1. Select the intended Scope.
 2. Finish active form edits and clear or submit captured drawings before rearranging.
 3. Open **Arrange**, choose Left → right or Top → bottom.
-4. Choose **Auto layout** for the complete scope, or **Layout selected + connected** for selected nodes plus their direct neighbors.
+4. Choose **Auto layout** for the complete scope, **Layout connected component** for every node reachable from the selection, or **Layout matching tags** for nodes sharing an original selected tag. The two region commands show their target count and are also in the selection context menu.
 
 Computation completion saves one draft operation immediately: there is no Apply button. **Cancel layout** is available only while computing. After saving, **Undo layout** restores this tab's last layout; document Undo/Redo is durable and separate. A partial layout keeps outside nodes fixed and may move the neighborhood away from occupied space.
+
+**Connected component** follows active connections in either direction until no more nodes are reachable, not just direct neighbors. Multiple selected nodes contribute all of their components. Scope membership still limits traversal.
+
+**Matching tags** uses the union of the selected nodes' original tags (Unicode/case normalized). A node with any matching tag is included even if disconnected. For selection `{backend}`, a match `{backend,database}` does **not** pull in `{database}` nodes. Multiple seeds use OR across their tags, not a requirement to have every tag. Untagged selected nodes are excluded; with no selected tags the command is disabled. Colors and START/END roles do not count as tags.
 
 Flow layouts are independent. Arranging Turn 2 does not reposition Whole graph or Turn 1. Starts/ends constrain the selected layout; a multi-node flow with one node marked both START and END cannot satisfy separate first/last bands. Correct its roles or choose a different scope; failure preserves the old layout.
 
@@ -132,7 +136,7 @@ Shortcuts do not override typing, IME composition or modal dialogs. F and Shift+
 | V / H / N / C / P / E | Select / Hand / Add node / Connect / Draw / Erase |
 | Hold Space; middle-drag | Temporary Hand; pan |
 | F | Center visible selection, preserve zoom |
-| Shift+L | Layout selected + connected |
+| Shift+L | Layout connected component |
 | Ctrl/Cmd+K | Graph search |
 | Ctrl/Cmd+S | Save valid forms to draft, never submit |
 | Ctrl/Cmd+Z; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y | Draft Undo; Redo outside text fields |

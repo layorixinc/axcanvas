@@ -1,7 +1,7 @@
 import { GraphError } from './store.ts';
 import { graphViewSchema, type Graph, type GraphView, type DraftOperation, type DraftLeafOperation, type ReviewChange, type Stroke } from './schema.ts';
 import { flowView, annotationFrame, validateFlows, validateGeometry, invalidateFlowRoutes, pruneFlowLayouts } from './flows.ts';
-import { mergeRegionGeometry } from '../public/neighborhood.js';
+import { mergeRegionGeometry } from '../public/regions.js';
 
 export type DraftWork = { graph: GraphView; note: string; strokes: Stroke[]; nodeIds: string[]; captureFlowId?: string | null; routeOrigin?: GraphView };
 export function graphView(graph: Graph): GraphView { const { graphId: _id, ...view } = graph; return { ...view, flows: view.flows ?? [], flowLayouts: view.flowLayouts ?? {} }; }
