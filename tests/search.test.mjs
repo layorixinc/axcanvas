@@ -55,3 +55,20 @@ test('search returns contextual deep-body snippets and leaves semantic input unt
   assert.ok(result.matches[0].snippet.startsWith('…'));
   assert.deepEqual(g, before);
 });
+
+test('tags support literal text and exact normalized hash terms without confusing labels or boundaries', () => {
+  const g = graph([
+    node('tagged', 'API storage', '', { tags: ['Backend', '설계', 'START'] }),
+    node('prefix', 'API', '', { tags: ['backend-api'] }),
+    node('label', 'Backend API #backend'),
+  ]);
+  const index = createSearchIndex(g);
+  assert.deepEqual(ids(searchNodes(index, '#backend')), ['tagged']);
+  assert.deepEqual(ids(searchNodes(index, '#ＢＡＣＫＥＮＤ api')), ['tagged']);
+  assert.deepEqual(ids(searchNodes(index, '#backend #설계')), ['tagged']);
+  assert.deepEqual(ids(searchNodes(index, '#backend missing')), []);
+  assert.equal(searchNodes(index, '#backend').matches[0].field, 'Tag');
+  assert.ok(ids(searchNodes(index, 'backend')).includes('tagged'));
+  assert.deepEqual(ids(searchNodes(index, '#START')), ['tagged']);
+  assert.equal(g.flows, undefined, 'Searching a START tag must not invent flow roles');
+});

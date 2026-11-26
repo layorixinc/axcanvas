@@ -7,7 +7,9 @@ export const nodeSchema = z.object({
   label: z.string().min(1).max(160),
   detail: z.string().max(20000),
   status: z.enum(['proposed', 'confirmed', 'retired']),
-  sources: z.array(z.object({ kind: z.enum(['turn', 'url']), ref: z.string().min(1).max(2000) }).strict()).max(40)
+  sources: z.array(z.object({ kind: z.enum(['turn', 'url']), ref: z.string().min(1).max(2000) }).strict()).max(40),
+  tags: z.array(z.string().min(1).max(64).regex(/^[^\s,#]+$/u, 'Tags cannot contain whitespace, commas or #')).max(32)
+    .refine(tags => new Set(tags.map(tag => tag.normalize('NFKC').toLowerCase())).size === tags.length, 'Tags must be unique after Unicode/case normalization').optional()
 }).strict();
 export const edgeSchema = z.object({
   id, source: id, target: id,
@@ -103,6 +105,7 @@ export const draftLeafOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('retire_edge'), edgeId: id }).strict(),
   z.object({ type: z.literal('move'), nodeId: id, position: positionSchema, flowId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal('layout'), positions: z.record(id, positionSchema), routes: z.record(id, routeSchema), direction: z.enum(['RIGHT', 'DOWN']).nullable(), flowId: id.nullable().optional() }).strict(),
+  z.object({ type: z.literal('layout_region'), nodeIds: idSet.refine(ids => ids.length > 0, 'Select at least one region node'), positions: z.record(id, positionSchema), routes: z.record(id, routeSchema), flowId: id.nullable().optional() }).strict(),
   z.object({ type: z.literal('instruction'), note: z.string().max(10000), strokes: z.array(strokeSchema).max(100), nodeIds: z.array(id).max(300), flowId: id.nullable().optional() }).strict()
 ]);
 export type DraftLeafOperation = z.infer<typeof draftLeafOperationSchema>;

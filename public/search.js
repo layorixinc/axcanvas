@@ -10,8 +10,8 @@ export function createSearchIndex(graph) {
       relations.get(id).push(edge.relation);
     }
   }
-  return graph.nodes.map(node => ({ node, fields: [
-    ['Label', node.label, 80], ['ID', node.id, 90], ['Detail', node.detail, 20],
+  return graph.nodes.map(node => ({ node, tags: new Set((node.tags ?? []).map(normalize)), fields: [
+    ['Label', node.label, 80], ['ID', node.id, 90], ['Detail', node.detail, 20], ['Tag', (node.tags ?? []).join(' · '), 70],
     ['Source', node.sources.map(source => source.ref).join(' · '), 10],
     ['Relationship', (relations.get(node.id) ?? []).join(' · '), 15],
   ].map(([name, text, weight]) => ({ name, text, weight, normalized: normalize(text) })) }));
@@ -27,6 +27,10 @@ export function searchNodes(index, query, { allowedIds = null, kind = '', includ
     if ((!includeRetired && node.status === 'retired') || (kind && node.kind !== kind) || (allowedIds && !allowedIds.has(node.id))) continue;
     let score = 0, matched = true;
     for (const term of terms) {
+      if (term.startsWith('#')) {
+        if (!row.tags.has(term.slice(1))) { matched = false; break; }
+        score += 120; continue;
+      }
       let best = 0;
       for (const field of fields) if (field.normalized.includes(term)) best = Math.max(best, field.weight);
       if (!best) { matched = false; break; }
@@ -35,8 +39,9 @@ export function searchNodes(index, query, { allowedIds = null, kind = '', includ
     if (!matched) continue;
     const label = fields[0].normalized, id = fields[1].normalized;
     score += label === q ? 20000 : id === q ? 10000 : label.startsWith(q) ? 5000 : label.includes(q) ? 2000 : 0;
-    const field = fields.find(field => terms.some(term => field.normalized.includes(term)));
-    const offset = Math.max(0, field.normalized.indexOf(terms.find(term => field.normalized.includes(term))) - 32);
+    const field = fields.find(field => terms.some(term => term.startsWith('#') ? field.name === 'Tag' && row.tags.has(term.slice(1)) : field.normalized.includes(term)));
+    const matchedTerm = terms.find(term => term.startsWith('#') ? field.name === 'Tag' && row.tags.has(term.slice(1)) : field.normalized.includes(term)).replace(/^#/, '');
+    const offset = Math.max(0, field.normalized.indexOf(matchedTerm) - 32);
     const snippet = `${offset ? '…' : ''}${field.text.slice(offset, offset + 160)}${field.text.length > offset + 160 ? '…' : ''}`;
     matches.push({ node, score, field: field.name, snippet, label });
   }
@@ -82,13 +87,13 @@ export function initGraphSearch({ getState, navigate }) {
     matchedIds = new Set(found.matches.map(match => match.node.id)); highlight();
     results.replaceChildren();
     warning.textContent = state.blocked; warning.hidden = !state.blocked;
-    count.textContent = !state.graph ? 'Open a session to search.' : !normalize(input.value) ? 'Search labels, details, IDs, sources and relationships.' : !found.total ? 'No matches. Try other words or Whole graph.' : found.total > found.matches.length ? `Showing ${found.matches.length} of ${found.total} matches` : `${found.total} match${found.total === 1 ? '' : 'es'}`;
+    count.textContent = !state.graph ? 'Open a session to search.' : !normalize(input.value) ? 'Search labels, details, IDs, tags, sources and relationships. Use #tag for an exact tag.' : !found.total ? 'No matches. Try other words or Whole graph.' : found.total > found.matches.length ? `Showing ${found.matches.length} of ${found.total} matches` : `${found.total} match${found.total === 1 ? '' : 'es'}`;
     for (const match of found.matches) {
       const item = document.createElement('li'), button = document.createElement('button');
       button.type = 'button'; button.dataset.nodeId = match.node.id; button.disabled = Boolean(state.blocked);
       const label = document.createElement('strong'); label.textContent = match.node.label;
       const meta = document.createElement('span'); meta.className = 'search-meta';
-      meta.textContent = `${match.node.kind} · ${match.node.id}${visibleIds.has(match.node.id) ? '' : ' · Outside scope'}${match.node.status === 'retired' ? ' · Retired' : ''}`;
+      meta.textContent = `${match.node.kind} · ${match.node.id}${visibleIds.has(match.node.id) ? '' : ' · Outside scope'}${match.node.status === 'retired' ? ' · Retired' : ''}${match.node.tags?.length ? ' · ' + match.node.tags.map(tag => '#' + tag).join(' ') : ''}`;
       const snippet = document.createElement('span'); snippet.className = 'search-snippet'; snippet.textContent = `${match.field}: ${match.snippet}`;
       button.append(label, meta, snippet); button.addEventListener('click', () => choose(match.node.id)); item.append(button); results.append(item);
     }

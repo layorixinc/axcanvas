@@ -3,6 +3,7 @@ import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 import { flowView, boundaryRoles } from '/flows.js';
 import { initWorkspace } from '/workspace.js';
 import { initGraphSearch } from '/search.js';
+import { selectedNeighborhood, placeNeighborhood, mergeRegionGeometry, regionBounds } from '/neighborhood.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -31,7 +32,7 @@ function refreshWorkspace() {
 function closeEditSession() { clearTimeout(propertyTimer); editSession = null; }
 function editGroup(target) { if (editSession?.target !== target) editSession = { target, id: newId() }; return editSession.id; }
 function formSnapshot(kind) {
-  return JSON.stringify((kind === 'node' ? ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y'] : ['edge-source', 'edge-target', 'edge-relation']).map(id => $(id).value));
+  return JSON.stringify((kind === 'node' ? ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y'] : ['edge-source', 'edge-target', 'edge-relation']).map(id => $(id).value));
 }
 function saveFailure(error) { saveError = error.message; notice(`${error.message} Your input is preserved; save or discard it before continuing.`); refreshWorkspace(); }
 function scheduleProperties() {
@@ -225,9 +226,9 @@ function geometryBounds(nodes = activeNodes()) {
   return { minX, minY, maxX, maxY };
 }
 function view() { $('canvas').setAttribute('viewBox', `${camera.x} ${camera.y} ${camera.w} ${camera.h}`); updateMinimapView(); refreshWorkspace(); }
-function fit() {
-  const bounds = geometryBounds(); if (!bounds) return;
-  const { minX, minY, maxX, maxY } = bounds;
+function fit() { const bounds = geometryBounds(); if (bounds) fitBounds(bounds); }
+function fitRegion(layout) { const b = regionBounds(layout); fitBounds({ minX: b.left, minY: b.top, maxX: b.right, maxY: b.bottom }); }
+function fitBounds({ minX, minY, maxX, maxY }) {
   const width = Math.max(900, maxX - minX + 140), height = Math.max(600, maxY - minY + 140);
   const ratio = $('canvas').clientWidth / Math.max(1, $('canvas').clientHeight);
   const w = Math.max(width, height * ratio), h = Math.max(height, width / ratio);
@@ -401,6 +402,7 @@ function draw() {
     appendBadges(group, graph, n.id, activeFlowId);
     group.setAttribute('aria-label', `${names[n.kind]}: ${n.label}${qualifiedRoles(graph, n.id) ? `; ${qualifiedRoles(graph, n.id)}` : ''}`);
     wrap(n.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
+    if (n.tags?.length) group.append(svg('text', { x: 20, y: 117, class: 'node-tags' }, Array.from(n.tags.map(tag => '#' + tag).join(' ')).slice(0, 48).join('')));
     group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
     group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (tool === 'connect') { if (connector) completeConnector(n.id); else { connector = { source: n.id, point: { x: p.x + 340, y: p.y + 75 } }; renderConnector(); } } else prepareSwitch().then(() => select(n.id, true, e.ctrlKey)).catch(saveFailure); } });
     group.addEventListener('pointerdown', e => nodePointerDown(e, n, group));
@@ -425,10 +427,12 @@ function select(id, discard = false, focus, additive = false) {
   newNode = false; $('new-node-position').hidden = true; $('edge-editor').hidden = true;
   $('editor').hidden = !selected; $('hint').hidden = !!selected; $('edit-warning').hidden = true;
   $('node-label').setCustomValidity('');
+  $('node-tags').setCustomValidity('');
   if (selected) {
     $('inspector-title').textContent = 'Node details and editing'; $('node-kind').textContent = names[selected.kind]; $('node-id').textContent = selected.id;
     $('node-label').value = selected.label; $('node-detail').value = selected.detail; $('node-status').value = selected.status;
     $('node-type').value = selected.kind;
+    $('node-tags').value = (selected.tags ?? []).join(', ');
     $('sources').replaceChildren();
     for (const source of selected.sources) {
       const li = document.createElement('li');
@@ -554,7 +558,7 @@ $('sessions').onchange = async () => {
   const id = $('sessions').value; $('sessions').value = graph?.sessionId ?? '';
   try { await prepareSwitch(); if (layoutLocked()) throw new Error('Finish the layout before changing sessions.'); await loadGraph(id); } catch (error) { saveFailure(error); }
 };
-$('editor').addEventListener('input', () => { $('node-label').setCustomValidity(''); dirty = true; review = null; scheduleProperties(); layoutControls(); });
+$('editor').addEventListener('input', () => { $('node-label').setCustomValidity(''); $('node-tags').setCustomValidity(''); dirty = true; review = null; scheduleProperties(); layoutControls(); });
 $('cancel').onclick = () => { closeEditSession(); saveError = ''; dirty = false; if (newNode) { newNode = false; selected = null; } select(selected?.id, true); };
 $('editor').onsubmit = async e => {
   e.preventDefault();
@@ -628,15 +632,19 @@ window.addEventListener('hashchange', async () => {
 function hasUnsaved() { return dirty || edgeDirty || instructionDirty || flowDirty; }
 function hasDraft() { return hasUnsaved() || strokes.length > 0; }
 function layoutLocked() { return !!(layoutJob || layoutPreview || layoutSaving); }
+function canLayoutNeighborhood() {
+  return !!(graph && !layoutLocked() && !pending && !hasDraft() && !reviewBusy && !dragging && !gesture && !connector && !document.querySelector('dialog[open]') && activeNodes().some(node => node.status !== 'retired' && selection.has(node.id)));
+}
 function layoutControls() {
   const locked = layoutLocked() || pending > 0 || reviewBusy, unsaved = hasDraft(), available = !!graph && activeNodes().some(n => n.status !== 'retired');
   $('auto-layout').disabled = !available || locked || unsaved;
+  $('auto-layout-neighborhood').disabled = !canLayoutNeighborhood();
   $('auto-layout').textContent = layoutJob ? 'Computing…' : 'Auto layout';
   $('apply-layout').hidden = !layoutPreview; $('apply-layout').disabled = layoutSaving;
   $('cancel-layout').hidden = !layoutJob && !layoutPreview; $('cancel-layout').disabled = layoutSaving;
   $('undo-layout').disabled = !layoutUndo || locked || unsaved;
   $('layout-direction').disabled = locked;
-  for (const id of ['node-label', 'node-detail', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = layoutLocked() || reviewBusy;
+  for (const id of ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = layoutLocked() || reviewBusy;
   $('save').disabled = locked || !selected;
   for (const id of ['pen', 'clear-ink', 'feedback-note', 'sessions', 'open-session', 'session-id', 'show-retired', 'add-node', 'connect-nodes', 'edge-picker', 'edge-source', 'edge-target', 'edge-relation', 'edge-reverse', 'edge-save', 'edge-cancel', 'edge-retire', 'discard-draft', 'inspect-latest']) $(id).disabled = locked || !graph;
   for (const id of ['edge-source', 'edge-target', 'edge-relation', 'feedback-note']) $(id).disabled = layoutLocked() || reviewBusy || !graph;
@@ -651,7 +659,7 @@ function layoutControls() {
   $('review-submit').disabled = locked || !review?.canSubmit || draftConflict;
   const state = layoutSaving ? 'saving' : layoutJob ? 'computing' : layoutPreview ? 'preview' : 'idle';
   $('layout-status').dataset.state = state;
-  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing layout…' : layoutPreview ? 'Preview — not saved yet.' : '';
+  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing layout…' : layoutPreview ? layoutPreview.mode === 'neighborhood' ? `Preview — selected + connected (${layoutPreview.nodeIds.length} nodes) — not saved yet.` : 'Preview — not saved yet.' : '';
   refreshWorkspace();
 }
 function cancelLayout(reason = '') {
@@ -660,19 +668,22 @@ function cancelLayout(reason = '') {
   if (layoutPreview) { camera = { ...layoutPreview.cameraBefore }; layoutPreview = null; view(); }
   draw(); layoutControls(); if (reason) notice(reason);
 }
-async function previewLayout() {
+async function previewLayout(mode = 'scope') {
   if (!graph || layoutLocked() || hasDraft()) return;
+  if (mode === 'neighborhood' && !canLayoutNeighborhood()) { notice('Select active nodes and finish forms, drawings or gestures before laying out their neighborhood.'); return; }
   const cancelled = Promise.withResolvers();
-  const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
+  const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), mode, selectedIds: mode === 'neighborhood' ? [...selection] : null, direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
   layoutJob = job; layoutControls();
   job.timer = setTimeout(() => job.reject(new Error('Layout exceeded 30 seconds. The existing layout is preserved.')), 30000);
   try {
     await Promise.race([document.fonts.ready, cancelled.promise]);
     if (layoutJob !== job) return;
+    const region = job.mode === 'neighborhood' ? selectedNeighborhood(job.snapshot, job.flowId, job.selectedIds) : null;
+    const inputGraph = region?.graph ?? job.snapshot, inputFlowId = region ? null : job.flowId;
     const measure = document.createElement('canvas').getContext('2d');
     if (!measure || typeof window.ELK !== 'function') throw new Error('The layout engine or font measurement is unavailable.');
     measure.font = `13px ${getComputedStyle(document.body).fontFamily}`;
-    const labels = Object.fromEntries(flowView(job.snapshot, job.flowId).edges.map(e => { const text = shortRelation(e.relation); return [e.id, { text, width: Math.ceil(measure.measureText(text).width) + 20, height: 28 }]; }));
+    const labels = Object.fromEntries(flowView(inputGraph, inputFlowId).edges.map(e => { const text = shortRelation(e.relation); return [e.id, { text, width: Math.ceil(measure.measureText(text).width) + 20, height: 28 }]; }));
     job.elk = new window.ELK({
       workerUrl: '/vendor/elk-worker.js', algorithms: ['layered'],
       workerFactory: url => {
@@ -682,11 +693,13 @@ async function previewLayout() {
         return worker;
       }
     });
-    const output = await Promise.race([job.elk.layout(buildLayoutGraph(job.snapshot, job.direction, labels, job.flowId)), cancelled.promise]);
+    const output = await Promise.race([job.elk.layout(buildLayoutGraph(inputGraph, job.direction, labels, inputFlowId)), cancelled.promise]);
     if (layoutJob !== job || !layoutMatches(job)) return;
-    const layout = extractLayout(output, job.direction, job.snapshot, job.flowId), previous = flowView(job.snapshot, job.flowId);
-    layoutPreview = { id: job.id, sessionId: job.sessionId, draftId: job.draftId, version: job.version, flowId: job.flowId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, layout, before: { positions: previous.positions, routes: previous.routes, direction: previous.layoutDirection }, cameraBefore: { ...camera } };
-    layoutJob = null; draw(); fit();
+    const computed = extractLayout(output, job.direction, inputGraph, inputFlowId), previous = flowView(job.snapshot, job.flowId);
+    const patch = region ? placeNeighborhood(job.snapshot, job.flowId, region, computed, job.direction) : null;
+    const layout = patch ? mergeRegionGeometry({ ...previous, direction: previous.layoutDirection }, region.nodeIds, patch.positions, patch.routes) : computed;
+    layoutPreview = { id: job.id, sessionId: job.sessionId, draftId: job.draftId, version: job.version, flowId: job.flowId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, mode: job.mode, nodeIds: region?.nodeIds, patch, layout, before: { positions: previous.positions, routes: previous.routes, direction: previous.layoutDirection }, cameraBefore: { ...camera } };
+    layoutJob = null; draw(); if (patch) fitRegion(patch); else fit();
   } catch (error) { if (layoutJob === job) notice(`Could not compute layout: ${error.message}`); }
   finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; layoutControls(); }
 }
@@ -695,9 +708,9 @@ async function applyLayout() {
   if (!layoutMatches(layoutPreview)) { cancelLayout('The draft or selected flow changed. Compute a fresh layout.'); return; }
   const candidate = layoutPreview; layoutPreview = null; layoutSaving = true; layoutControls();
   try {
-    await changeDraft({ type: 'layout', ...candidate.layout, flowId: candidate.flowId });
+    await changeDraft(candidate.patch ? { type: 'layout_region', nodeIds: candidate.nodeIds, ...candidate.patch, flowId: candidate.flowId } : { type: 'layout', ...candidate.layout, flowId: candidate.flowId });
     layoutUndo = { sessionId: candidate.sessionId, draftId: candidate.draftId, flowId: candidate.flowId, version: draft.version, before: candidate.before, cameraBefore: candidate.cameraBefore };
-    fit(); notice('Auto layout saved to draft.');
+    if (candidate.patch) fitRegion(candidate.patch); else fit(); notice(candidate.patch ? 'Selected neighborhood layout saved to draft.' : 'Auto layout saved to draft.');
   } catch (error) {
     camera = { ...candidate.cameraBefore }; view(); notice(`Could not save layout: ${error.message}`);
   } finally { layoutSaving = false; layoutControls(); draw(); }
@@ -712,7 +725,8 @@ async function undoLayout() {
   } catch (error) { notice(`Could not undo layout: ${error.message}`); }
   finally { layoutSaving = false; layoutControls(); draw(); }
 }
-$('auto-layout').onclick = previewLayout;
+$('auto-layout').onclick = () => previewLayout();
+$('auto-layout-neighborhood').onclick = () => previewLayout('neighborhood');
 $('apply-layout').onclick = applyLayout;
 $('cancel-layout').onclick = () => cancelLayout();
 $('undo-layout').onclick = undoLayout;
@@ -756,16 +770,23 @@ function mutateDraft(tool, args) {
 }
 function changeDraft(operation, group) {
   const operations = operation.type === 'batch' ? operation.operations : [operation];
-  if (strokes.length && operations.some(op => ['move', 'layout', 'retire_node', 'retire_edge', 'flow', 'retire_flow', 'edge'].includes(op.type) || (op.type === 'node' && (!graph.nodes.some(n => n.id === op.node.id) || op.node.status === 'retired')))) return Promise.reject(new Error('Clear or submit drawings before changing geometry or flow membership.'));
+  if (strokes.length && operations.some(op => ['move', 'layout', 'layout_region', 'retire_node', 'retire_edge', 'flow', 'retire_flow', 'edge'].includes(op.type) || (op.type === 'node' && (!graph.nodes.some(n => n.id === op.node.id) || op.node.status === 'retired')))) return Promise.reject(new Error('Clear or submit drawings before changing geometry or flow membership.'));
   if (!group) closeEditSession();
   return mutateDraft('draft_change', { operation, ...(group ? { editGroup: group } : {}) });
+}
+function nodeTags() {
+  const tags = $('node-tags').value.split(',').map(tag => tag.trim()).filter(Boolean);
+  const message = tags.length > 32 ? 'Use at most 32 tags.' : tags.some(tag => tag.length > 64 || /[\s,#]/u.test(tag)) ? 'Each tag must be 1–64 characters without whitespace, commas or #.' : new Set(tags.map(tag => tag.normalize('NFKC').toLowerCase())).size !== tags.length ? 'Tags must be unique.' : '';
+  $('node-tags').setCustomValidity(message);
+  return tags;
 }
 async function saveNode(report = true) {
   if (!selected || !dirty || composing) return;
   $('node-label').setCustomValidity($('node-label').value.trim() ? '' : 'Enter a node label.');
+  const tags = nodeTags();
   if (!(report ? $('editor').reportValidity() : $('editor').checkValidity())) throw new Error('Complete the node form before saving.');
   const snapshot = formSnapshot('node'), creating = newNode;
-  const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value };
+  const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value, ...(selected.tags !== undefined || tags.length ? { tags } : {}) };
   const operation = node.status === 'retired' && !creating ? { type: 'retire_node', nodeId: node.id } : { type: 'node', node };
   if (creating) { operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) }; operation.flowId = nodeFormFlowId; }
   await changeDraft(operation, creating ? undefined : editGroup(`node:${node.id}`));
@@ -883,6 +904,7 @@ function placeNode(position) {
   $('node-flow-panel').hidden = true;
   $('editor').hidden = false; $('hint').hidden = true; $('new-node-position').hidden = false; $('inspector-title').textContent = 'Create node';
   $('node-id').textContent = selected.id; $('node-kind').textContent = names[placementKind]; $('node-type').value = placementKind; $('node-label').value = ''; $('node-detail').value = ''; $('node-status').value = 'proposed';
+  $('node-tags').value = ''; $('node-tags').setCustomValidity('');
   $('node-x').value = Math.round(position.x); $('node-y').value = Math.round(position.y);
   selection.clear(); workspace.showPanel('properties');
   $('sources').replaceChildren(); $('node-label').focus(); layoutControls();
@@ -1062,6 +1084,7 @@ async function pasteSelection() {
 }
 async function dispatchCommand(command) {
   if (command === 'center-selection') { await centerSelection(); return; }
+  if (command === 'layout-neighborhood') { await previewLayout('neighborhood'); return; }
   if (command.startsWith('node-kind:')) {
     const kind = command.slice('node-kind:'.length);
     if (Object.hasOwn(names, kind)) { placementKind = kind; if (newNode) { $('node-type').value = kind; dirty = true; layoutControls(); } }
@@ -1131,6 +1154,7 @@ document.addEventListener('keydown', event => {
   }
   if (event.altKey) return;
   if (key === 'f' && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); centerSelection(); return; }
+  if (key === 'l' && event.shiftKey && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); previewLayout('neighborhood'); return; }
   if (event.code === 'Space') { if (event.target.closest?.('button')) return; event.preventDefault(); if (!spaceTool) { spaceTool = tool; workspace.setTool('hand'); } return; }
   if (key === 'escape') { event.preventDefault(); cancelGesture(); return; }
   if (event.key.startsWith('Arrow') && selection.size) { event.preventDefault(); dispatchCommand(`nudge:${event.key}:${event.shiftKey ? 10 : 1}`).catch(saveFailure); return; }
@@ -1147,10 +1171,11 @@ $('canvas').addEventListener('contextmenu', event => {
   if (clean && id && !selection.has(id)) select(id, true);
   const menu = document.createElement('div'); menu.id = 'canvas-context-menu'; menu.setAttribute('role', 'menu');
   Object.assign(menu.style, { position: 'fixed', left: `${Math.min(event.clientX, innerWidth - 210)}px`, top: `${Math.min(event.clientY, innerHeight - 320)}px`, zIndex: '100', background: '#17212f', padding: '8px', border: '1px solid #8aabff', display: 'grid' });
-  const commands = [['center-selection', 'Center selection'], ...(clean ? [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']] : [])];
+  const commands = [['center-selection', 'Center selection'], ['layout-neighborhood', 'Layout selected + connected'], ...(clean ? [['copy-selection', 'Copy'], ['paste-selection', 'Paste'], ['duplicate-selection', 'Duplicate'], ['align-left', 'Align left'], ['align-top', 'Align top'], ['distribute-horizontal', 'Distribute horizontally'], ['distribute-vertical', 'Distribute vertically'], ['retire-selection', 'Retire selection']] : [])];
   for (const [command, text] of commands) {
     const button = document.createElement('button'); button.textContent = text; button.setAttribute('role', 'menuitem'); button.dataset.command = command;
     if (command === 'center-selection') button.disabled = !canCenterSelection();
+    if (command === 'layout-neighborhood') button.disabled = !canLayoutNeighborhood();
     button.onclick = () => { menu.remove(); dispatchCommand(command).catch(saveFailure); }; menu.append(button);
   }
   document.body.append(menu); menu.firstElementChild.focus();

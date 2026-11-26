@@ -1,6 +1,7 @@
 import { GraphError } from './store.ts';
 import { graphViewSchema, type Graph, type GraphView, type DraftOperation, type DraftLeafOperation, type ReviewChange, type Stroke } from './schema.ts';
 import { flowView, annotationFrame, validateFlows, validateGeometry, invalidateFlowRoutes, pruneFlowLayouts } from './flows.ts';
+import { mergeRegionGeometry } from '../public/neighborhood.js';
 
 export type DraftWork = { graph: GraphView; note: string; strokes: Stroke[]; nodeIds: string[]; captureFlowId?: string | null; routeOrigin?: GraphView };
 export function graphView(graph: Graph): GraphView { const { graphId: _id, ...view } = graph; return { ...view, flows: view.flows ?? [], flowLayouts: view.flowLayouts ?? {} }; }
@@ -48,7 +49,7 @@ function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperati
     if (!scoped) return null;
     return g.flowLayouts[scoped.id] ??= { positions: { ...scope!.positions }, routes: {}, direction: null };
   };
-  if (operation.type !== 'layout' && operation.type !== 'instruction' && !next.routeOrigin) next.routeOrigin = structuredClone(g);
+  if (!['layout', 'layout_region', 'instruction'].includes(operation.type) && !next.routeOrigin) next.routeOrigin = structuredClone(g);
   const node = (id: string) => { const n = g.nodes.find(n => n.id === id); if (!n) throw new GraphError('INVALID_GRAPH', `Unknown node: ${id}`); return n; };
   const cleanMembership = (id: string, edge: boolean) => {
     if (!edge) next.nodeIds = next.nodeIds.filter(value => value !== id);
@@ -71,7 +72,9 @@ function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperati
   switch (operation.type) {
     case 'node': {
       const index = g.nodes.findIndex(n => n.id === operation.node.id);
-      if (index < 0) g.nodes.push(operation.node); else g.nodes[index] = operation.node;
+      const previous = g.nodes[index];
+      const updated = operation.node.tags === undefined && previous?.tags !== undefined ? { ...operation.node, tags: previous.tags } : operation.node;
+      if (index < 0) g.nodes.push(updated); else g.nodes[index] = updated;
       if (scoped && !scoped.nodeIds.includes(operation.node.id)) scoped.nodeIds.push(operation.node.id);
       if (operation.position) (geometry()?.positions ?? g.positions)[operation.node.id] = operation.position;
       if (operation.node.status === 'retired') {
@@ -116,6 +119,20 @@ function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperati
       else { g.positions[operation.nodeId] = operation.position; g.routes = {}; }
       break;
     }
+    case 'layout_region': {
+      const ids = new Set(operation.nodeIds), positioned = Object.keys(operation.positions), region = scope ?? flowView(g);
+      if (positioned.length !== ids.size || positioned.some(id => !ids.has(id))) throw new GraphError('INVALID_LAYOUT', 'Region positions must exactly match its nodeIds');
+      validateGeometry(g, region.flowId, { positions: operation.positions, routes: operation.routes, direction: null });
+      const edges = new Map(region.edges.map(edge => [edge.id, edge]));
+      for (const id of Object.keys(operation.routes)) {
+        const edge = edges.get(id);
+        if (!edge || !ids.has(edge.source) || !ids.has(edge.target)) throw new GraphError('INVALID_LAYOUT', 'Region routes must connect region nodes only');
+      }
+      const layout = mergeRegionGeometry(region, operation.nodeIds, operation.positions, operation.routes);
+      if (scoped) g.flowLayouts[scoped.id] = layout;
+      else { g.positions = layout.positions; g.routes = layout.routes; }
+      delete next.routeOrigin; break;
+    }
     case 'layout': {
       validateGeometry(g, scope?.flowId ?? null, operation);
       if (scoped) g.flowLayouts[scoped.id] = { positions: operation.positions, routes: operation.routes, direction: operation.direction };
@@ -128,7 +145,7 @@ function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperati
       next.note = operation.note; next.strokes = operation.strokes; next.nodeIds = operation.nodeIds; next.captureFlowId = flowId; break;
     }
   }
-  if (!['layout', 'move', 'instruction'].includes(operation.type)) invalidateFlowRoutes(g);
+  if (!['layout', 'layout_region', 'move', 'instruction'].includes(operation.type)) invalidateFlowRoutes(g);
   pruneFlowLayouts(g);
   if (captured && operation.type !== 'instruction' && !same(captured, annotationFrame(g, work.captureFlowId ?? null))) throw new GraphError('VALIDATION_FAILED', 'Clear drawings before changing their captured view membership or geometry');
   if (next.routeOrigin) {

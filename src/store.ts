@@ -143,7 +143,10 @@ export class GraphStore {
       if (!input.nodes.length && !input.edges.length && !input.retireNodeIds.length && !input.retireEdgeIds.length && !input.flows?.length && !input.retireFlowIds?.length) throw new GraphError('INVALID_GRAPH', 'Empty graph change is not an answer');
       const nodes = new Map<string, GraphNode>(graph.nodes.map(n => [n.id, n]));
       const edges = new Map<string, GraphEdge>(graph.edges.map(e => [e.id, e]));
-      for (const n of input.nodes) nodes.set(n.id, n);
+      for (const n of input.nodes) {
+        const previous = nodes.get(n.id);
+        nodes.set(n.id, n.tags === undefined && previous?.tags !== undefined ? { ...n, tags: previous.tags } : n);
+      }
       for (const e of input.edges) edges.set(e.id, e);
       for (const id of input.retireNodeIds) {
         const n = nodes.get(id); if (!n) throw new GraphError('INVALID_GRAPH', `Unknown retired node: ${id}`);

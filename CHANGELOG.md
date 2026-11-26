@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add optional node tags across agent writes, human Properties, draft/review/rebase/history and search. Support exact `#tag` queries while preserving omitted tags for older clients; keep classification separate from scoped START/END roles.
+- Add selected-plus-direct-neighbor layout through Arrange, the context menu and Shift+L. Compute only the projected neighborhood, preserve outside geometry, and apply it as one undoable draft operation.
+
 - Add indexed graph search with ranked multi-field literal matching, Unicode normalization, scope/type filters, visible match highlights, keyboard navigation and zoom-preserving result selection. Preserve drafts and captured drawing frames; document Graphify research and matching limitations.
 
 - Add Center selection below Hand in the toolbox, with F and View/context-menu access. Preserve zoom, tools, scoped geometry and draft state while navigating; support preview positions and mobile Inspector dismissal.

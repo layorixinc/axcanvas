@@ -145,10 +145,14 @@ Example request:
 ## Every answer
 1. graph_read, then feedback_read. Preserve current canonical edits and stable IDs.
 2. Write a meaningful graph_commit using the current baseRevision, a unique answerId, and nodes/edges arrays. Do not fabricate citations; sources may be empty.
-3. Nodes require id, kind (concept|claim|decision|question|task), label, detail, status (proposed|confirmed|retired), sources:[{kind:turn|url,ref}]. Edges require id,source,target,relation,status(active|retired).
+3. Nodes require id, kind (concept|claim|decision|question|task), label, detail, status (proposed|confirmed|retired), sources:[{kind:turn|url,ref}]. Optional tags:string[] classify the shared node. Edges require id,source,target,relation,status(active|retired).
 4. Retire obsolete items explicitly. Preserve human positions, constraints and neighboring descriptions.
 5. graph_commit.feedbackIds acknowledges processed feedback atomically with graph changes. Otherwise use feedback_ack with an honest status/explanation. Delivery is never completion.
 6. After success, give a short conclusion and canvasUrl. Never claim graph output after a failed request.
+
+## Node tags
+Read graph_read for the intended session and retain the existing node's ID and other fields. Set tags to the complete desired array in graph_commit; use the current baseRevision. To add tags, union them with the existing array first. Omitted tags preserve existing tags; [] explicitly clears them. Maximum 32 tags of 1–64 characters, with no whitespace, comma or # and no Unicode/case-equivalent duplicates.
+Search ordinary tag text or use #backend for an exact normalized tag, combined with other terms using AND. Tags are not flow roles: a START tag never sets a boundary; use flows[].startNodeIds/endNodeIds for those.
 
 ## Scoped flows and geometry
 Flows are complete definitions upserted by stable ID. Example graph_commit arguments after the referenced nodes/edge exist (or include them in the same commit):
