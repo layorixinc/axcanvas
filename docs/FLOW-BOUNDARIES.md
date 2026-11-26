@@ -70,7 +70,7 @@ The IDs above illustrate metadata; referenced graph entities must actually exist
 - Retiring a node/edge stages membership cleanup and role removal. Removing a newly created marked node must not leave a phantom flow change.
 - Review shows dedicated flow/membership/role and per-view layout diffs. Final Submit atomically publishes them with the rest of the draft and creates only one notification.
 - Rebase merges independent flow changes and reports incompatible membership/role changes. Undo after rebase cannot restore stale remote metadata.
-- Review tokens and Worker jobs bind the draft version and relevant flow definitions. Editing another role or scope invalidates affected previews.
+- Review tokens and Worker jobs bind the draft version and relevant flow definitions. Editing another role or scope invalidates affected calculations before their automatic draft save.
 - Drawings must retain their flow ID and captured frame. Do not reinterpret coordinates after a scope/view switch; require explicit preservation of the captured annotation or clearing it. Submitted snapshots retain the exact view and boundary tags.
 
 ## Canvas presentation
@@ -98,7 +98,7 @@ Use the real same-origin ELK layered/ORTHOGONAL Worker with label measurements, 
 
 ELK rejects links between FIRST_SEPARATE nodes, even when their roles and semantic directions are valid. For linked boundary bands, represent full-size boundary nodes as ELK compound bands with fixed-side ports. Extract compound-local coordinates into one view frame and apply the same strict boundary, route and label postconditions. Preserve original semantic node/edge identities and endpoints; do not independently post-shift nodes or invent semantic relationships.
 
-Validate actual rectangles: leading/trailing bands, strictly intermediate unmarked members, finite positions, non-overlap, labels, complete routes and preserved edge endpoints/directions. Engine success alone is insufficient. On infeasible/invalid output, preserve the old view geometry and do not enable Apply. Never silently drop constraints, remove cycles, invent edges or clear roles.
+Validate actual rectangles: leading/trailing bands, strictly intermediate unmarked members, finite positions, non-overlap, labels, complete routes and preserved edge endpoints/directions. Engine success alone is insufficient. On infeasible/invalid output, preserve the old view geometry and save nothing. Never silently drop constraints, remove cycles, invent edges or clear roles.
 
 A single-member flow can mark its node both start and end, even when other scopes contain many nodes. If a flow with multiple members gives the same node both roles, two separated boundary layers cannot both hold; reject that scope's Auto layout with actionable guidance, without deleting valid metadata or silently placing it normally.
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { openMenu } from './workspace-helpers.mjs';
+import { openMenu, draftResponse, result, idle } from './workspace-helpers.mjs';
 
-// View-only regression on a real graph. No graph/layout writes are allowed.
+// Minimap navigation is view-only; the explicit layout exercise saves only to the draft.
 export async function verifyMinimap(page) {
   await page.waitForSelector('.graph-node');
   assert.ok(await page.$('#minimap'), 'A navigable minimap must be present');
@@ -39,20 +39,20 @@ export async function verifyMinimap(page) {
     await page.focus('#minimap-toggle'); await page.keyboard.press('Tab'); await page.keyboard.press('ArrowRight'); const keyed = await state(); assert.ok(keyed.camera.x > panned.camera.x); await page.keyboard.press('Home'); cases.push('keyboard-navigation');
     await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap',e=>e.hasAttribute('hidden')),true);
     await page.click('#minimap-toggle'); assert.equal(await page.$eval('#minimap',e=>e.hasAttribute('hidden')),false); cases.push('collapse-expand');
-    await openMenu(page, 'arrange'); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]',{timeout:10000});
+    await openMenu(page, 'arrange'); const arranged = draftResponse(page, args => args.operation.type === 'layout'); await page.click('#auto-layout'); await result(await arranged); await idle(page);
     const matching = await page.evaluate(() => {
       const node=document.querySelector('.graph-node'), id=node.getAttribute('data-node-id');
       const mini=[...document.querySelectorAll('#minimap-nodes rect')].find(e=>e.getAttribute('data-minimap-node')===id);
       const matrix=node.transform.baseVal.consolidate().matrix;
       return Math.abs(matrix.e-+mini.getAttribute('x'))<.01 && Math.abs(matrix.f-+mini.getAttribute('y'))<.01;
     });
-    assert.equal(matching,true); await page.click('#cancel-layout'); cases.push('layout-preview-cancel-sync');
+    assert.equal(matching,true); await openMenu(page, 'arrange'); await page.click('#undo-layout'); await idle(page); cases.push('layout-save-undo-sync');
     await page.setViewport({ width:1100,height:800,deviceScaleFactor:1 });
     await page.waitForFunction(() => {
       const map=document.getElementById('minimap').getBoundingClientRect(),v=document.getElementById('minimap-viewport').getBoundingClientRect();
       return v.width>0&&v.height>0&&v.left>=map.left-1&&v.right<=map.right+1&&v.top>=map.top-1&&v.bottom<=map.bottom+1;
     }); cases.push('resize-viewport-bounds');
-    assert.deepEqual(await stored(),original,'Minimap, preview and navigation must not write graph or layout data');
+    assert.deepEqual(await stored(),original,'Minimap navigation and draft layout must not publish canonical changes');
     return {cases,graphUnchanged:true};
   } finally { await page.setViewport(originalViewport); await page.click('#fit'); }
 }

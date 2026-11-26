@@ -53,8 +53,8 @@ export async function verifyEnglishDefaults(page, baseUrl) {
     await page.click('[data-node-id="two"]'); assert.equal(await page.$eval('#node-id', e => e.textContent), 'two');
     await page.click('[data-node-id="one"]'); assert.equal(await page.$eval('#node-label', e => e.value), `${label} 수정`);
     await page.click('#draft-undo'); await page.waitForFunction(text => document.getElementById('node-label').value === text, {}, label);
-    await openMenu(page, 'arrange'); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
-    await page.click('#cancel-layout');
+    await openMenu(page, 'arrange'); const arranged = draftResponse(page, args => args.operation.type === 'layout'); await page.click('#auto-layout'); await result(await arranged); await idle(page);
+    await openMenu(page, 'arrange'); await page.click('#undo-layout'); await idle(page);
     const nonEnglishChrome = await page.evaluate(() => {
       const userContent = '#title, #sessions option:not([value=""]), #nodes .label, #nodes title, #edges .edge-label, #edges title, #sources, #node-relations, #feedback-list p, #feedback-target, #edge-picker option:not([value=""]), #edge-source option:not([value=""]), #edge-target option:not([value=""])';
       const findings = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);

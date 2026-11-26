@@ -17,13 +17,17 @@ export async function verifyTagsAndNeighborhood(page, baseUrl) {
   await page.setViewport({ width: 1440, height: 960, deviceScaleFactor: 1 });
   await page.goto(`${baseUrl}/#${sessionId}`); await page.waitForSelector('#nodes [data-node-id="a"]');
   assert.ok(await page.$('#auto-layout-neighborhood'), 'Arrange must expose Layout selected + connected');
+  assert.equal(await page.$('#apply-layout'), null, 'Automatic layout must save to the draft without an Apply step');
   const draftId = await page.evaluate(id => localStorage.getItem(`axcanvas-draft:${id}`), sessionId);
   const read = () => call('draft_read', { draftId });
   const canonical = await call('graph_read');
   async function select(id) { await page.click('#tool-select'); await page.click('#fit'); await page.click(`#nodes [data-node-id="${id}"]`); }
-  async function preview(direction = 'RIGHT') { await openMenu(page, 'arrange'); await page.select('#layout-direction', direction); await page.click('#auto-layout-neighborhood'); await page.waitForSelector('#layout-status[data-state="preview"]', { timeout: 10000 }); }
-  async function cancel() { await page.click('#cancel-layout'); await page.waitForSelector('#layout-status[data-state="idle"]'); }
-  async function apply() { const response = draftResponse(page, args => args.operation.type === 'layout_region'); await page.click('#apply-layout'); const d = await result(await response); await idle(page); return d; }
+  async function arrange(direction = 'RIGHT') {
+    await openMenu(page, 'arrange'); await page.select('#layout-direction', direction);
+    const response = draftResponse(page, args => args.operation.type === 'layout_region');
+    await page.click('#auto-layout-neighborhood'); const d = await result(await response);
+    await page.waitForSelector('#layout-status[data-state="idle"]'); await idle(page); return d;
+  }
   async function undo() { const response = page.waitForResponse(r => r.url().endsWith('/api/agent/v1') && r.request().method() === 'POST' && JSON.parse(r.request().postData()).tool === 'draft_step'); await openMenu(page, 'arrange'); await page.click('#undo-layout'); const d = await result(await response); await idle(page); return d; }
   const worker = w => workerUrls.push(w.url()); page.on('workercreated', worker);
   try {
@@ -39,24 +43,32 @@ export async function verifyTagsAndNeighborhood(page, baseUrl) {
     cases.push('agent-tags-exact-search-human-autosave-reload-undo-and-validation');
 
     await select('b'); const before = await read(), outside = await page.$eval('#nodes [data-node-id="d"]', e => e.getAttribute('transform'));
-    await preview(); assert.match(await page.$eval('#layout-status', e => e.textContent), /3 nodes/); assert.equal(await page.$eval('#nodes [data-node-id="d"]', e => e.getAttribute('transform')), outside); assert.deepEqual(await read(), before); await cancel(); assert.deepEqual(await read(), before);
-    cases.push('one-hop-native-worker-preview-cancel-without-write');
-    await openMenu(page, 'arrange'); await page.select('#layout-direction', 'DOWN'); await page.keyboard.press('Escape'); await page.focus('#tool-select'); await page.keyboard.down('Shift'); await page.keyboard.press('KeyL'); await page.keyboard.up('Shift'); await page.waitForSelector('#layout-status[data-state="preview"]', { timeout: 10000 });
-    d = await apply();
+    d = await arrange(); assert.equal(d.version, before.version + 1); assert.equal(await page.$eval('#nodes [data-node-id="d"]', e => e.getAttribute('transform')), outside);
+    assert.deepEqual((await undo()).graph, before.graph); cases.push('one-hop-native-worker-immediate-save-and-one-checkpoint');
+    await openMenu(page, 'arrange'); await page.select('#layout-direction', 'DOWN'); await page.keyboard.press('Escape'); await page.focus('#tool-select');
+    const shortcutSave = draftResponse(page, args => args.operation.type === 'layout_region');
+    await page.keyboard.down('Shift'); await page.keyboard.press('KeyL'); await page.keyboard.up('Shift');
+    d = await result(await shortcutSave); await idle(page);
     for (const id of ['d','e','isolated']) assert.deepEqual(d.graph.positions[id], before.graph.positions[id]);
     assert.deepEqual(d.graph.routes.de, before.graph.routes.de); assert.equal(d.graph.routes.cd, undefined); assert.equal(d.graph.layoutDirection, before.graph.layoutDirection);
     assert.ok(d.graph.positions.a.y < d.graph.positions.b.y && d.graph.positions.b.y < d.graph.positions.c.y); assert.deepEqual(d.graph.nodes, before.graph.nodes); assert.deepEqual(d.graph.edges, before.graph.edges); assert.deepEqual(d.graph.flows, before.graph.flows);
     assert.deepEqual(await call('graph_read'), canonical); assert.deepEqual((await call('feedback_read')).feedback, []);
-    assert.deepEqual((await undo()).graph, before.graph); cases.push('shortcut-one-checkpoint-apply-and-exact-undo');
+    assert.deepEqual((await undo()).graph, before.graph); cases.push('shortcut-immediate-save-and-exact-undo');
 
-    await page.select('#flow-selector', 'topic'); await select('b'); const scopedBefore = await read(); await preview(); d = await apply();
+    await page.select('#flow-selector', 'topic'); await select('b'); const scopedBefore = await read(); d = await arrange();
     assert.deepEqual(d.graph.positions, scopedBefore.graph.positions); assert.deepEqual(d.graph.routes, scopedBefore.graph.routes); assert.deepEqual(d.graph.flows, canonical.flows); assert.deepEqual(Object.keys(d.graph.flowLayouts.topic.positions).sort(), ['a','b','c']); assert.deepEqual((await undo()).graph, scopedBefore.graph);
     cases.push('scoped-neighborhood-preserves-global-geometry-and-role-metadata');
 
     await page.select('#flow-selector', ''); await select('b'); await page.keyboard.down('Shift'); try { await page.click('#nodes [data-node-id="isolated"]'); } finally { await page.keyboard.up('Shift'); }
-    await page.click('#nodes [data-node-id="b"]', { button: 'right' }); await page.click('#canvas-context-menu [data-command="layout-neighborhood"]'); await page.waitForSelector('#layout-status[data-state="preview"]', { timeout: 10000 }); assert.match(await page.$eval('#layout-status', e => e.textContent), /4 nodes/); await cancel();
+    await page.click('#nodes [data-node-id="b"]', { button: 'right' });
+    const contextSave = draftResponse(page, args => args.operation.type === 'layout_region');
+    await page.click('#canvas-context-menu [data-command="layout-neighborhood"]'); const contextResponse = await contextSave;
+    d = await result(contextResponse); await idle(page);
+    assert.equal(JSON.parse(contextResponse.request().postData()).arguments.operation.nodeIds.length, 4);
+    for (const id of ['d','e']) assert.deepEqual(d.graph.positions[id], before.graph.positions[id]);
+    await undo();
     cases.push('context-menu-multiple-seeds-and-isolated-selection');
-    await select('b'); await preview(); await page.click('#apply-layout'); await page.waitForSelector('#layout-status[data-state="idle"]'); await idle(page); await page.click('#fit');
+    await select('b'); await arrange();
     return { sessionId, cases, workerUrls, canonicalUnchanged: JSON.stringify(await call('graph_read')) === JSON.stringify(canonical) };
   } finally { page.off('workercreated', worker); }
 }

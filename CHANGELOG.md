@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Save both whole-scope and selected-neighborhood layout directly to the draft when computation completes. Remove the preview/Apply step; retain computation cancellation, exact Undo and final reviewed submission. Reject newer canonical/draft revisions atomically rather than saving stale geometry.
+
 - Add optional node tags across agent writes, human Properties, draft/review/rebase/history and search. Support exact `#tag` queries while preserving omitted tags for older clients; keep classification separate from scoped START/END roles.
 - Add selected-plus-direct-neighbor layout through Arrange, the context menu and Shift+L. Compute only the projected neighborhood, preserve outside geometry, and apply it as one undoable draft operation.
 

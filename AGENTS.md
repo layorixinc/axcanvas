@@ -18,7 +18,7 @@
 - Revision conflicts return the current revision and re-read instructions. Never silently overwrite human edits.
 - Graph changes, feedback acknowledgements and replay records are transactional. Notify clients only after a successful commit.
 - Preserve existing databases, history and stable IDs. Store semantic content and layout separately.
-- Layout checks both graph revision and layoutRevision. Preview/cancel does not persist; apply/undo replaces positions, routes, labels and direction together. Semantic edits/manual moves invalidate routes while preserving coordinates.
+- Layout checks both graph revision and layoutRevision. Worker completion immediately saves one atomic draft layout; computation cancellation writes nothing. Save/Undo preserves positions, routes, labels and direction together. There is no layout preview/Apply step. Semantic edits/manual moves invalidate routes while preserving coordinates.
 - Unstored active forms and drawings block rearrangement. Explicit Worker layout applies only to the draft until Submit. Keep persistent draft Undo/Redo separate from per-tab layout undo and never undo merged remote changes.
 - Do not expose a global session directory. Unknown session IDs must not return another session's data. Network participants who know an ID can access it because there is no authentication.
 - Keep loopback as the default. Explicit LAN mode still enforces Host/Origin, Content-Type, body/schema limits and XSS defenses. Do not expose the service publicly.

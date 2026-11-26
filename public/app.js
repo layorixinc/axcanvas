@@ -3,7 +3,7 @@ import { buildLayoutGraph, extractLayout, shortRelation } from '/layout.js';
 import { flowView, boundaryRoles } from '/flows.js';
 import { initWorkspace } from '/workspace.js';
 import { initGraphSearch } from '/search.js';
-import { selectedNeighborhood, placeNeighborhood, mergeRegionGeometry, regionBounds } from '/neighborhood.js';
+import { selectedNeighborhood, placeNeighborhood, regionBounds } from '/neighborhood.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -12,7 +12,7 @@ const names = { concept: 'Concept', claim: 'Claim', decision: 'Decision', questi
 let graph = null, selected = null, dirty = false, changed = new Set(), dragging = null, loading = 0;
 let camera = { x: 0, y: 0, w: 1500, h: 1000 };
 let penMode = false, strokes = [], events;
-let layoutJob = null, layoutPreview = null, layoutUndo = null, layoutSaving = false;
+let layoutJob = null, layoutUndo = null, layoutSaving = false;
 let draft = null, mutationTail = Promise.resolve(), pending = 0, review = null, inspectedLatest = null;
 let newNode = false, edgeEditing = null, edgeDirty = false, instructionDirty = false, instructionTimer;
 let draftConflict = false, reviewBusy = false;
@@ -207,11 +207,10 @@ async function api(tool, args = {}, sessionId = graph?.sessionId) {
 function svg(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); if (text !== undefined) e.textContent = text; return e; }
 function activeNodes() { return graph ? activeFlowId ? currentView().nodes : graph.nodes.filter(n => $('show-retired').checked || n.status !== 'retired') : []; }
 function visibleEdges() { return !activeFlowId && $('show-retired').checked ? graph.edges : currentView().edges; }
-function displayedLayout() { return layoutPreview?.layout ?? currentView(); }
 function point(node) {
   if (dragging?.positions?.[node.id]) return dragging.positions[node.id];
   const i = currentView().nodes.findIndex(n => n.id === node.id);
-  return displayedLayout().positions[node.id] ?? { x: 90 + (i % 3) * 440, y: 100 + Math.floor(i / 3) * 235 };
+  return currentView().positions[node.id] ?? { x: 90 + (i % 3) * 440, y: 100 + Math.floor(i / 3) * 235 };
 }
 let minimapBounds = null, minimapFrame = null, minimapDrag = null;
 function geometryBounds(nodes = activeNodes()) {
@@ -219,7 +218,7 @@ function geometryBounds(nodes = activeNodes()) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const include = (x, y) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
   for (const n of nodes) { const p = point(n); include(p.x, p.y); include(p.x + 340, p.y + 150); }
-  if (!dragging?.id) for (const route of Object.values(displayedLayout().routes ?? {})) {
+  if (!dragging?.id) for (const route of Object.values(currentView().routes ?? {})) {
     for (const section of route.sections) for (const p of section) include(p.x, p.y);
     include(route.label.x, route.label.y); include(route.label.x + route.label.width, route.label.y + route.label.height);
   }
@@ -272,7 +271,7 @@ async function navigateSearchNode(id) {
   const node = graph?.nodes.find(node => node.id === id);
   if (!node || node.status === 'retired' && !$('show-retired').checked) throw new Error('This result is no longer available. Search again.');
   if (!activeNodes().some(node => node.id === id)) {
-    if (strokes.length || layoutPreview) throw new Error('Clear or submit the captured drawing, or finish the layout preview, before navigating outside this scope.');
+    if (strokes.length) throw new Error('Clear or submit the captured drawing before navigating outside this scope.');
     activeFlowId = null; layoutUndo = null; review = null; edgeEditing = null;
     renderFlowSelector(); renderEdgePicker();
   }
@@ -289,7 +288,7 @@ function drawMinimap(nodes = activeNodes()) {
   for (const edge of visibleEdges()) {
     const a = positions.get(edge.source), b = positions.get(edge.target);
     if (!a || !b || (!$('show-retired').checked && edge.status === 'retired')) continue;
-    const route = dragging?.id ? null : displayedLayout().routes?.[edge.id];
+    const route = dragging?.id ? null : currentView().routes?.[edge.id];
     const d = route ? route.sections.map(section => `M ${section.map(p => `${p.x} ${p.y}`).join(' L ')}`).join(' ') : `M ${a.x + 170} ${a.y + 75} L ${b.x + 170} ${b.y + 75}`;
     $('minimap-edges').append(svg('path', { d }));
   }
@@ -364,7 +363,7 @@ function drawEdges() {
   const ids = new Set(activeNodes().map(n => n.id));
   for (const edge of visibleEdges()) {
     if ((!$('show-retired').checked && edge.status === 'retired') || !ids.has(edge.source) || !ids.has(edge.target)) continue;
-    const route = dragging?.id ? null : displayedLayout().routes?.[edge.id];
+    const route = dragging?.id ? null : currentView().routes?.[edge.id];
     const focused = selected && $('focus-relations').checked && (edge.source === selected.id || edge.target === selected.id);
     const dimmed = selected && $('focus-relations').checked && !focused;
     const group = svg('g', { class: `graph-edge ${route ? 'routed' : ''} ${focused ? 'focused' : ''} ${dimmed ? 'dimmed' : ''}`, 'data-edge-id': edge.id, opacity: edge.status === 'retired' ? .3 : 1 });
@@ -631,17 +630,16 @@ window.addEventListener('hashchange', async () => {
 
 function hasUnsaved() { return dirty || edgeDirty || instructionDirty || flowDirty; }
 function hasDraft() { return hasUnsaved() || strokes.length > 0; }
-function layoutLocked() { return !!(layoutJob || layoutPreview || layoutSaving); }
+function layoutLocked() { return !!(layoutJob || layoutSaving); }
 function canLayoutNeighborhood() {
-  return !!(graph && !layoutLocked() && !pending && !hasDraft() && !reviewBusy && !dragging && !gesture && !connector && !document.querySelector('dialog[open]') && activeNodes().some(node => node.status !== 'retired' && selection.has(node.id)));
+  return !!(graph && !draftConflict && !layoutLocked() && !pending && !hasDraft() && !reviewBusy && !dragging && !gesture && !connector && !document.querySelector('dialog[open]') && activeNodes().some(node => node.status !== 'retired' && selection.has(node.id)));
 }
 function layoutControls() {
   const locked = layoutLocked() || pending > 0 || reviewBusy, unsaved = hasDraft(), available = !!graph && activeNodes().some(n => n.status !== 'retired');
-  $('auto-layout').disabled = !available || locked || unsaved;
+  $('auto-layout').disabled = !available || locked || unsaved || draftConflict;
   $('auto-layout-neighborhood').disabled = !canLayoutNeighborhood();
   $('auto-layout').textContent = layoutJob ? 'Computing…' : 'Auto layout';
-  $('apply-layout').hidden = !layoutPreview; $('apply-layout').disabled = layoutSaving;
-  $('cancel-layout').hidden = !layoutJob && !layoutPreview; $('cancel-layout').disabled = layoutSaving;
+  $('cancel-layout').hidden = !layoutJob;
   $('undo-layout').disabled = !layoutUndo || locked || unsaved;
   $('layout-direction').disabled = locked;
   for (const id of ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = layoutLocked() || reviewBusy;
@@ -657,22 +655,22 @@ function layoutControls() {
   $('draft-redo').disabled = locked || !draft?.canRedo;
   $('draft-version').textContent = draft ? `Draft version ${draft.version}${pending ? ' · Saving…' : ''}${draftConflict ? ' · Conflict: inspect latest before submitting' : ''}` : 'No draft';
   $('review-submit').disabled = locked || !review?.canSubmit || draftConflict;
-  const state = layoutSaving ? 'saving' : layoutJob ? 'computing' : layoutPreview ? 'preview' : 'idle';
+  const state = layoutSaving ? 'saving' : layoutJob ? 'computing' : 'idle';
   $('layout-status').dataset.state = state;
-  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing layout…' : layoutPreview ? layoutPreview.mode === 'neighborhood' ? `Preview — selected + connected (${layoutPreview.nodeIds.length} nodes) — not saved yet.` : 'Preview — not saved yet.' : '';
+  $('layout-status').textContent = layoutSaving ? 'Saving layout…' : layoutJob ? 'Computing layout…' : '';
   refreshWorkspace();
 }
 function cancelLayout(reason = '') {
-  if (layoutSaving) return;
-  if (layoutJob) { const job = layoutJob; layoutJob = null; job.reject(new Error('Layout cancelled')); job.elk?.terminateWorker(); clearTimeout(job.timer); }
-  if (layoutPreview) { camera = { ...layoutPreview.cameraBefore }; layoutPreview = null; view(); }
+  if (!layoutJob || layoutSaving) return;
+  const job = layoutJob; layoutJob = null; job.reject(new Error('Layout cancelled')); job.elk?.terminateWorker(); clearTimeout(job.timer);
   draw(); layoutControls(); if (reason) notice(reason);
 }
-async function previewLayout(mode = 'scope') {
-  if (!graph || layoutLocked() || hasDraft()) return;
+async function runLayout(mode = 'scope') {
+  if (!graph || layoutLocked() || pending || hasDraft() || reviewBusy || draftConflict) return;
   if (mode === 'neighborhood' && !canLayoutNeighborhood()) { notice('Select active nodes and finish forms, drawings or gestures before laying out their neighborhood.'); return; }
   const cancelled = Promise.withResolvers();
   const job = { id: newId(), sessionId: graph.sessionId, draftId: draft.id, version: draft.version, flowId: activeFlowId, baseRevision: graph.revision, baseLayoutRevision: graph.layoutRevision, snapshot: structuredClone(graph), mode, selectedIds: mode === 'neighborhood' ? [...selection] : null, direction: $('layout-direction').value, elk: null, reject: cancelled.reject, timer: null };
+  let saving = false;
   layoutJob = job; layoutControls();
   job.timer = setTimeout(() => job.reject(new Error('Layout exceeded 30 seconds. The existing layout is preserved.')), 30000);
   try {
@@ -694,26 +692,19 @@ async function previewLayout(mode = 'scope') {
       }
     });
     const output = await Promise.race([job.elk.layout(buildLayoutGraph(inputGraph, job.direction, labels, inputFlowId)), cancelled.promise]);
-    if (layoutJob !== job || !layoutMatches(job)) return;
-    const computed = extractLayout(output, job.direction, inputGraph, inputFlowId), previous = flowView(job.snapshot, job.flowId);
+    if (layoutJob !== job) return;
+    if (!layoutMatches(job)) throw new Error('The draft or selected flow changed. Calculate a fresh layout.');
+    const computed = extractLayout(output, job.direction, inputGraph, inputFlowId);
     const patch = region ? placeNeighborhood(job.snapshot, job.flowId, region, computed, job.direction) : null;
-    const layout = patch ? mergeRegionGeometry({ ...previous, direction: previous.layoutDirection }, region.nodeIds, patch.positions, patch.routes) : computed;
-    layoutPreview = { id: job.id, sessionId: job.sessionId, draftId: job.draftId, version: job.version, flowId: job.flowId, baseRevision: job.baseRevision, baseLayoutRevision: job.baseLayoutRevision, mode: job.mode, nodeIds: region?.nodeIds, patch, layout, before: { positions: previous.positions, routes: previous.routes, direction: previous.layoutDirection }, cameraBefore: { ...camera } };
-    layoutJob = null; draw(); if (patch) fitRegion(patch); else fit();
-  } catch (error) { if (layoutJob === job) notice(`Could not compute layout: ${error.message}`); }
-  finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; layoutControls(); }
-}
-async function applyLayout() {
-  if (!layoutPreview || layoutSaving) return;
-  if (!layoutMatches(layoutPreview)) { cancelLayout('The draft or selected flow changed. Compute a fresh layout.'); return; }
-  const candidate = layoutPreview; layoutPreview = null; layoutSaving = true; layoutControls();
-  try {
-    await changeDraft(candidate.patch ? { type: 'layout_region', nodeIds: candidate.nodeIds, ...candidate.patch, flowId: candidate.flowId } : { type: 'layout', ...candidate.layout, flowId: candidate.flowId });
-    layoutUndo = { sessionId: candidate.sessionId, draftId: candidate.draftId, flowId: candidate.flowId, version: draft.version, before: candidate.before, cameraBefore: candidate.cameraBefore };
-    if (candidate.patch) fitRegion(candidate.patch); else fit(); notice(candidate.patch ? 'Selected neighborhood layout saved to draft.' : 'Auto layout saved to draft.');
-  } catch (error) {
-    camera = { ...candidate.cameraBefore }; view(); notice(`Could not save layout: ${error.message}`);
-  } finally { layoutSaving = false; layoutControls(); draw(); }
+    const cameraBefore = { ...camera };
+    clearTimeout(job.timer); job.elk.terminateWorker(); job.elk = null;
+    layoutJob = null; saving = true; layoutSaving = true; layoutControls();
+    await changeDraft(patch ? { type: 'layout_region', nodeIds: region.nodeIds, ...patch, flowId: job.flowId } : { type: 'layout', ...computed, flowId: job.flowId });
+    layoutUndo = { sessionId: job.sessionId, draftId: job.draftId, flowId: job.flowId, version: draft.version, cameraBefore };
+    if (patch) fitRegion(patch); else fit();
+    notice(patch ? `Selected neighborhood layout saved to draft (${region.nodeIds.length} nodes).` : 'Auto layout saved to draft.');
+  } catch (error) { if (saving || layoutJob === job) notice(`Could not ${saving ? 'save' : 'compute'} layout: ${error.message}`); }
+  finally { clearTimeout(job.timer); job.elk?.terminateWorker(); if (layoutJob === job) layoutJob = null; if (saving) layoutSaving = false; layoutControls(); if (saving) draw(); }
 }
 async function undoLayout() {
   if (!layoutUndo || layoutLocked() || hasDraft()) return;
@@ -725,9 +716,8 @@ async function undoLayout() {
   } catch (error) { notice(`Could not undo layout: ${error.message}`); }
   finally { layoutSaving = false; layoutControls(); draw(); }
 }
-$('auto-layout').onclick = () => previewLayout();
-$('auto-layout-neighborhood').onclick = () => previewLayout('neighborhood');
-$('apply-layout').onclick = applyLayout;
+$('auto-layout').onclick = () => runLayout();
+$('auto-layout-neighborhood').onclick = () => runLayout('neighborhood');
 $('cancel-layout').onclick = () => cancelLayout();
 $('undo-layout').onclick = undoLayout;
 $('focus-relations').onchange = draw;
@@ -742,7 +732,7 @@ function acceptDraft(next, restoreInstructions = false) {
   if (restoreInstructions || !instructionDirty) { strokes = structuredClone(next.strokes); captureFlowId = next.captureFlowId ?? null; $('feedback-note').value = next.note; }
   if ((restoreInstructions || !instructionDirty) && strokes.length) activeFlowId = captureFlowId;
   if (activeFlowId && !graph.flows?.some(flow => flow.id === activeFlowId && flow.status !== 'retired')) activeFlowId = null;
-  if (layoutJob && !layoutMatches(layoutJob) || layoutPreview && !layoutMatches(layoutPreview)) cancelLayout();
+  if (layoutJob && !layoutMatches(layoutJob)) cancelLayout();
   renderFlowSelector();
   if (!layoutLocked() && currentView().layoutDirection) $('layout-direction').value = currentView().layoutDirection;
   if (restoreInstructions) instructionDirty = false;
@@ -872,9 +862,9 @@ async function checkCanonical() {
   draftConflict = latest.revision !== draft.baseRevision || latest.layoutRevision !== draft.baseLayoutRevision;
   if (draftConflict) {
     review = null;
-    if (layoutJob || layoutPreview) cancelLayout();
+    if (layoutJob) cancelLayout();
     $('edit-warning').hidden = false;
-    notice('The canonical graph changed. Your draft and active input are preserved. Any outdated layout preview was cancelled. Inspect latest before submitting.');
+    notice('The canonical graph changed. Your draft and active input are preserved. Stale layout calculations cannot be saved. Inspect latest before submitting.');
   }
   layoutControls(); await watcherStatus();
 }
@@ -1084,7 +1074,7 @@ async function pasteSelection() {
 }
 async function dispatchCommand(command) {
   if (command === 'center-selection') { await centerSelection(); return; }
-  if (command === 'layout-neighborhood') { await previewLayout('neighborhood'); return; }
+  if (command === 'layout-neighborhood') { await runLayout('neighborhood'); return; }
   if (command.startsWith('node-kind:')) {
     const kind = command.slice('node-kind:'.length);
     if (Object.hasOwn(names, kind)) { placementKind = kind; if (newNode) { $('node-type').value = kind; dirty = true; layoutControls(); } }
@@ -1154,7 +1144,7 @@ document.addEventListener('keydown', event => {
   }
   if (event.altKey) return;
   if (key === 'f' && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); centerSelection(); return; }
-  if (key === 'l' && event.shiftKey && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); previewLayout('neighborhood'); return; }
+  if (key === 'l' && event.shiftKey && event.target.closest?.('#canvas,#toolbox')) { event.preventDefault(); runLayout('neighborhood'); return; }
   if (event.code === 'Space') { if (event.target.closest?.('button')) return; event.preventDefault(); if (!spaceTool) { spaceTool = tool; workspace.setTool('hand'); } return; }
   if (key === 'escape') { event.preventDefault(); cancelGesture(); return; }
   if (event.key.startsWith('Arrow') && selection.size) { event.preventDefault(); dispatchCommand(`nudge:${event.key}:${event.shiftKey ? 10 : 1}`).catch(saveFailure); return; }

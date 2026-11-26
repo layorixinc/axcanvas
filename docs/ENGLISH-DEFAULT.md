@@ -6,7 +6,7 @@ English is the fixed default for product documentation and application-owned UI,
 Use the existing direct DOM/string conventions. Do not introduce a locale picker, browser-language detection, translation dependencies or an i18n framework for a single default language.
 
 ## Vocabulary
-- Auto layout; Apply; Cancel; Undo layout
+- Auto layout; Cancel layout (while computing); Undo layout
 - Fit graph; Draw; Clear drawing; Include retired
 - Focus connections; Minimap; Collapse; Expand
 - Save changes; Reload; Show history; Send to agent
@@ -20,7 +20,7 @@ Never translate or rewrite user session titles, node labels/details, relationshi
 
 ## TDD and live acceptance
 1. A browser regression first fails against the existing Korean document language.
-2. Under a Korean browser locale, actual controls and accessibility text are English. Exercise selection, dirty-edit protection, history, minimap collapse/expand, feedback states and layout preview/cancel.
+2. Under a Korean browser locale, actual controls and accessibility text are English. Exercise selection, dirty-edit protection, history, minimap collapse/expand, feedback states and immediate layout save/Undo.
 3. Use a clearly synthetic Korean/Japanese graph and feedback. Verify exact display and deep-equal stored graph/feedback before and after view-only interaction.
 4. The existing standalone Chrome suite still verifies editing, drawing submission, acknowledgement, layout conflicts/undo, focus, pan and minimap.
 5. Inspect actual screenshots. Check narrow and medium viewports for document overflow, reachable controls and minimap/control overlap. Do not claim GitHub CI or untested platforms passed.

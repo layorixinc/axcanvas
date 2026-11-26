@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { beginNode, beginConnection, openMenu, showPanel } from './workspace-helpers.mjs';
+import { beginNode, beginConnection, openMenu, showPanel, draftResponse, result, idle } from './workspace-helpers.mjs';
 
 export async function verifyReviewedAuthoring(page, baseUrl) {
   const sessionId = `review-ui-${randomUUID()}`, cases = [];
@@ -37,7 +37,8 @@ export async function verifyReviewedAuthoring(page, baseUrl) {
   await fill('#edge-relation', 'requests review'); d = await action('#edge-save', 'draft_change');
   let edge = d.graph.edges.find(e => e.target === created.id); assert.ok(edge);
   await page.select('#edge-picker', edge.id); await page.click('#edge-reverse'); await fill('#edge-relation', 'responds to');
-  d = await action('#edge-save', 'draft_change');
+  const reversed = draftResponse(page, args => args.operation.type === 'edge' && args.operation.edge.id === edge.id && args.operation.edge.relation === 'responds to');
+  await page.click('#edge-save'); d = await result(await reversed); await idle(page);
   edge = d.graph.edges.find(e => e.id === edge.id); assert.equal(edge.source, created.id); assert.equal(edge.target, 'a'); assert.equal(edge.relation, 'responds to');
   await page.select('#edge-picker', edge.id); d = await action('#edge-retire', 'draft_change'); assert.equal(d.graph.edges.some(e => e.id === edge.id), false);
   d = await action('#draft-undo', 'draft_step'); assert.ok(d.graph.edges.some(e => e.id === edge.id));
@@ -54,8 +55,8 @@ export async function verifyReviewedAuthoring(page, baseUrl) {
   d = await action('#draft-undo', 'draft_step'); assert.equal(d.graph.nodes.find(n => n.id === 'a').label, 'Original root');
   d = await action('#draft-redo', 'draft_step'); assert.equal(d.graph.nodes.find(n => n.id === 'a').label, 'Human-reviewed root'); cases.push('durable-draft-and-history');
 
-  await openMenu(page, 'arrange'); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
-  d = await action('#apply-layout', 'draft_change'); await page.waitForSelector('#layout-status[data-state="idle"]'); await page.click('#fit');
+  await openMenu(page, 'arrange'); d = await action('#auto-layout', 'draft_change');
+  await page.waitForSelector('#layout-status[data-state="idle"]'); await page.click('#fit');
   assert.ok(Object.keys(d.graph.routes).length > 0); assert.deepEqual(await call('graph_read'), original); cases.push('worker-layout-remains-draft');
   await page.click('[data-node-id="a"]'); await page.click('#pen');
   const point = await page.$eval('[data-node-id="a"]', e => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });

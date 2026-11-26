@@ -190,3 +190,24 @@ test('drawing coordinates survive semantic rebase but never silently follow move
     assert.deepEqual(await f.call('draft_read', { draftId: d.id }), d);
   } finally { await f.close(); }
 });
+
+test('automatic draft layout rejects newer canonical content or geometry atomically', async () => {
+  const f = await fixture();
+  try {
+    let d = await f.call('draft_open', { draftId: 'automatic-layout-race' });
+    await f.call('graph_commit', { baseRevision: 1, answerId: 'remote', nodes: [node('b', 'New remote content')], edges: [] });
+    const layout = { type: 'layout', positions: { a: { x: 0, y: 0 }, b: { x: 500, y: 0 } }, routes: {}, direction: 'RIGHT' };
+    const region = { type: 'layout_region', nodeIds: ['a'], positions: { a: { x: 100, y: 100 } }, routes: {} };
+    for (const operation of [layout, region, { type: 'batch', operations: [{ type: 'instruction', note: 'Must roll back', nodeIds: [], strokes: [] }, layout] }]) {
+      const response = await f.request('draft_change', change(d, operation));
+      assert.equal(response.status, 409); assert.equal(response.body.error.code, 'DRAFT_BASE_CONFLICT');
+      assert.deepEqual(await f.call('draft_read', { draftId: d.id }), d);
+    }
+    let latest = await f.call('graph_read');
+    d = await f.call('draft_rebase', { ...version(d), baseRevision: latest.revision, baseLayoutRevision: latest.layoutRevision, resolution: 'fail' });
+    await f.call('graph_layout', { baseRevision: latest.revision, baseLayoutRevision: latest.layoutRevision, mode: 'move', positions: { a: { x: 900, y: 900 } } });
+    assert.equal((await f.request('draft_change', change(d, layout))).status, 409);
+    assert.deepEqual(await f.call('draft_read', { draftId: d.id }), d);
+    assert.deepEqual((await f.call('graph_read')).positions.a, { x: 900, y: 900 });
+  } finally { await f.close(); }
+});

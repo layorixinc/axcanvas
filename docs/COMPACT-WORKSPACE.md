@@ -16,7 +16,7 @@ Desktop uses exactly two compact top rows and one bottom status bar. The canvas 
 
 1. Document row: small application/File menu, current document title/session switcher, Undo/Redo, Inspector toggle and one prominent Review changes command. Session ID entry, copy link, recent sessions and agent connection setup live in File/Open or a document popover, not permanent inputs.
 2. Command row: current Scope selector, contextual commands for the active tool/selection and Arrange/View overflow menus. Scope management sits in the scope dropdown's Manage flows action. No separate scope-description line or permanent layout-explanation line.
-3. Canvas: a small left toolbox, unobstructed working surface, optional lower-right minimap. Temporary previews and editing handles are spatially attached to the object, not another full-width toolbar.
+3. Canvas: a small left toolbox, unobstructed working surface, optional lower-right minimap. Temporary gesture previews and editing handles are spatially attached to the object, not another full-width toolbar.
 4. Inspector: collapsible right properties pane, normally 288–320px. It shows the selected node, selected relationship, current scope or active drawing settings—not all editors stacked together. No selection shows a compact document/scope summary rather than a large tutorial.
 5. Status bar: current tool's short instruction, draft save state, a single agent-delivery indicator and zoom controls/percentage. Revision/counts/IDs are available in a details popover. Legal notices and keyboard help move to Help/About.
 
@@ -31,7 +31,7 @@ Desktop target: top chrome at most 96px; bottom bar at most 28px. At 1365 × 768
 | Persistent Session ID textbox and Open button | Move to File → Open session/link. Keep one recent-document switcher. |
 | Separate draft, flow and layout panels | Replace with the document row, command row and toolbox. |
 | Flow label + type + ID description below selector | Show selected label once; type/ID appear in Manage flows/tooltip. |
-| Positions change only when you run layout | Remove static text; show state only during calculation/preview/failure. |
+| Positions change only when you run layout | Remove static text; show state only during calculation/saving/failure. |
 | Draft version repeated in toolbar and sidebar | One save-state indicator; exact version in details. |
 | Permanent session/API card and agent guide link | Move to Connection popover / Help; keep a compact status indicator. |
 | Repeated watcher/delivery/security paragraphs | Move detail to connection status and onboarding; retain warnings at relevant risky actions. |
@@ -89,8 +89,8 @@ Aim for Office-style saved-state clarity without changing publication rules:
 ### Scope, arrangement and drawing frames
 
 - The Scope selector is always visible. Current-scope badges remain START/END/START + END, with qualified additional roles in properties/tooltips.
-- Arrange provides Auto layout and direction choices. Geometry is still scoped. Calculation and preview replace the contextual command area with a compact Calculating…/Apply/Cancel state; do not add a third toolbar row.
-- Preview cancellation and failure preserve the prior geometry. Stale canonical/draft versions invalidate Apply. Do not conflate per-tab Undo layout with durable Undo; explain the former in Arrange, not as a second permanent Undo icon.
+- Arrange provides Auto layout and direction choices. Geometry is still scoped. Calculation and saving use compact Computing…/Saving… status in the contextual command area. Cancel layout exists only while computing; completion saves directly to draft with no Apply step. Do not add a third toolbar row.
+- Computation cancellation and failed saves preserve prior geometry. Stale canonical/draft versions reject the automatic save atomically. Do not conflate per-tab Undo layout with durable Undo; explain the former in Arrange, not as a second permanent Undo icon.
 - Drawings retain captureFlowId. A blocked scope switch or arrangement explains that the drawing must be kept in its frame or explicitly cleared; changing tools is not clearing a drawing.
 - Minimap, review snapshot and submitted image continue to reflect the selected/captured scope. Rebase and immutable submissions retain current safeguards.
 
@@ -136,6 +136,6 @@ Implementation regressions live in `tests/edit-groups.test.ts` and `tests/worksp
 - `npm run check` passed: 62 API/storage/layout/notification tests, TypeScript and public JavaScript syntax checks.
 - `npm run test:browser` passed the 12 compact-workspace scenarios: layout/Inspector, placement and contextual type, direct/drag/self/parallel connectors, grouped autosave and invalid-input recovery, native Korean IME and input-local Undo, marquee, scoped group movement/nudging/alignment/distribution, new-identity clipboard operations, stroke-only erasing, temporary Hand, one final review/notification, and responsive layouts.
 - At 1365 × 768, the real canvas measured 648px high, compared with the earlier 300px. The application had no document-level overflow. Actual browser coverage also exercised 1600 × 1050, 800px and 390px widths.
-- Existing English/multilingual, scoped roles/captures, reviewed authoring/rebase, native Worker preview/undo/conflicts, Ctrl-focus, middle-pan, fit and minimap scenarios passed after migrating interactions to visible menus and the new autosave contract.
+- Existing English/multilingual, scoped roles/captures, reviewed authoring/rebase, native Worker layout/undo/conflicts, Ctrl-focus, middle-pan, fit and minimap scenarios passed after migrating interactions to visible menus and the autosave contract.
 - A separately deployed live session performed real pointer placement, connection, grouped property autosave, scoped group movement, drawing and reviewed submission. Canonical content remained unchanged until Submit and original global geometry was preserved. The actual common watcher completed once; the agent read the packet/canonical graph and acknowledged Applied. The live database and WAL/SHM were backed up before cutover.
 - Windows, Node.js 24.16 and Chrome were exercised. No extra paid model session, live Claude Code client or GitHub CI run is claimed.

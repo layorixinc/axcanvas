@@ -21,7 +21,7 @@ Local execution does not prove the GitHub-hosted workflow ran or that macOS/Linu
 ## Observed local release verification — 2026-11-24
 - Copied only the 41 publication candidates to a new temporary source directory; no node_modules, database, artifact, agent session or Git metadata was copied.
 - A clean npm ci completed. npm run check passed: 29 Node tests, TypeScript and public JS syntax checks.
-- The standalone Chrome runner passed layout preview/apply/cancel/undo/conflicts, node selection and unsaved input, Ctrl focus, middle-button pan, centered fit, minimap, real node editing, drawing submission and atomic feedback acknowledgement.
+- The standalone Chrome runner covers automatic draft layout save/computation-cancel/Undo/conflicts, node selection and unsaved input, Ctrl focus, middle-button pan, centered fit, minimap, real node editing, drawing submission and atomic feedback acknowledgement.
 - The pan helper originally targeted a node hidden under the floating controls after repeated pan/zoom. It now hit-tests a visible node before dragging; all five original pan scenarios remain in the suite.
 - npm audit --omit=dev reported zero known production vulnerabilities.
 - A limited token/private-environment pattern scan of the publication candidates found no matches. This is not a guarantee that every form of sensitive data is absent.

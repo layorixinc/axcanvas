@@ -301,6 +301,11 @@ export class GraphStore {
     return this.transaction(() => {
       const draft = this.draftRecord(sessionId, parsed.draftId);
       this.checkDraft(draft, parsed.baseDraftVersion);
+      const changesLayout = operation.type === 'batch' ? operation.operations.some(op => op.type === 'layout' || op.type === 'layout_region') : operation.type === 'layout' || operation.type === 'layout_region';
+      if (changesLayout) {
+        const latest = this.db.prepare('SELECT revision,layout_revision FROM graphs WHERE session_id=?').get(sessionId)!;
+        if (latest.revision !== draft.base.revision || latest.layout_revision !== draft.base.layoutRevision) throw new GraphError('DRAFT_BASE_CONFLICT', 'Canonical graph or layout changed; inspect and rebase before calculating a fresh layout', { currentRevision: latest.revision, currentLayoutRevision: latest.layout_revision });
+      }
       const target = parsed.editGroup ? this.editTarget(draft.work, operation) : null;
       const coalesce = parsed.editGroup && target && draft.editGroup?.id === parsed.editGroup && draft.editGroup.target === target && draft.editGroup.checkpoint === draft.checkpoint;
       draft.work = applyOperation(draft.work, draft.base, operation);

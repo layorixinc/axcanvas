@@ -16,8 +16,8 @@ export async function verifyScopedFlows(page, baseUrl) {
   async function fill(selector, value) { await page.click(selector, { clickCount: 3 }); await page.type(selector, value); }
   async function scope(id) { await page.select('#flow-selector', id); await page.waitForFunction(id => document.getElementById('flow-selector').value === id, {}, id); await page.click('#fit'); }
   async function layout(direction) {
-    await openMenu(page, 'arrange'); await page.select('#layout-direction', direction); await page.click('#auto-layout'); await page.waitForSelector('#layout-status[data-state="preview"]');
-    const draft = await action('#apply-layout'); await page.waitForSelector('#layout-status[data-state="idle"]'); await page.click('#fit'); return draft;
+    await openMenu(page, 'arrange'); await page.select('#layout-direction', direction);
+    const draft = await action('#auto-layout'); await page.waitForSelector('#layout-status[data-state="idle"]'); await page.click('#fit'); return draft;
   }
   const node = id => ({ id, kind: 'concept', label: ({ a: 'Question — 질문', b: 'Shared result', c: 'Conclusion C', d: 'Conclusion D' })[id], detail: 'One semantic identity reused across flows.', status: 'confirmed', sources: [] });
   const edge = (id, source, target) => ({ id, source, target, relation: 'supports', status: 'active' });
