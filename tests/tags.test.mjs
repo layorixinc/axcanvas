@@ -80,3 +80,23 @@ test('rebase preserves independent field edits and reports concurrent tag confli
     assert.equal(r.status, 409); assert.match(JSON.stringify(r.body), /nodes.a.tags/); assert.deepEqual((await f.call('draft_read', { draftId: d.id })).graph.nodes[0].tags, ['human']);
   } finally { await f.close(); }
 });
+
+test('palette overrides persist, survive older writers and publish immutable review colors', async () => {
+  const f = await fixture();
+  try {
+    await f.call('graph_commit', { baseRevision: 0, answerId: 'colors', nodes: [node('a', { tags: ['Backend'], tagColors: { backend: 'coral' } })], edges: [] });
+    await f.call('graph_commit', { baseRevision: 1, answerId: 'old', nodes: [node()], edges: [] });
+    await f.restart();
+    assert.deepEqual((await f.call('graph_read')).nodes[0].tagColors, { backend: 'coral' });
+    let d = await f.call('draft_open', { draftId: 'palette' });
+    d = await f.call('draft_change', { ...version(d), operation: { type: 'node', node: node('a', { tagColors: { backend: 'teal' } }) } });
+    d = await f.call('draft_step', { ...version(d), direction: 'undo' }); assert.equal(d.graph.nodes[0].tagColors.backend, 'coral');
+    d = await f.call('draft_step', { ...version(d), direction: 'redo' });
+    const review = await f.call('draft_review', version(d));
+    const packet = await f.call('draft_submit', { ...version(d), reviewToken: review.token });
+    assert.equal(packet.review.after.nodes[0].tagColors.backend, 'teal');
+    assert.equal((await f.call('graph_read')).nodes[0].tagColors.backend, 'teal');
+    const invalid = await f.request('graph_commit', { baseRevision: 3, answerId: 'bad', nodes: [node('a', { tagColors: { backend: 'red' } })], edges: [] });
+    assert.equal(invalid.status, 422);
+  } finally { await f.close(); }
+});

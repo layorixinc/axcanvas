@@ -145,7 +145,7 @@ export class GraphStore {
       const edges = new Map<string, GraphEdge>(graph.edges.map(e => [e.id, e]));
       for (const n of input.nodes) {
         const previous = nodes.get(n.id);
-        nodes.set(n.id, n.tags === undefined && previous?.tags !== undefined ? { ...n, tags: previous.tags } : n);
+        nodes.set(n.id, { ...n, ...(n.tags === undefined && previous?.tags !== undefined ? { tags: previous.tags } : {}), ...(n.tagColors === undefined && previous?.tagColors !== undefined ? { tagColors: previous.tagColors } : {}) });
       }
       for (const e of input.edges) edges.set(e.id, e);
       for (const id of input.retireNodeIds) {

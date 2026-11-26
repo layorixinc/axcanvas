@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Render node tags as high-contrast colored chips with automatic normalized-name colors and per-node palette overrides in Properties, review and feedback images. Preserve color metadata for older clients.
+- Search actual scoped flow boundaries using `is:start`, `is:end` and a Flow role filter; distinguish roles from classification tags.
 - Save both whole-scope and selected-neighborhood layout directly to the draft when computation completes. Remove the preview/Apply step; retain computation cancellation, exact Undo and final reviewed submission. Reject newer canonical/draft revisions atomically rather than saving stale geometry.
 
 - Add optional node tags across agent writes, human Properties, draft/review/rebase/history and search. Support exact `#tag` queries while preserving omitted tags for older clients; keep classification separate from scoped START/END roles.

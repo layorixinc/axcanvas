@@ -9,7 +9,9 @@ export const nodeSchema = z.object({
   status: z.enum(['proposed', 'confirmed', 'retired']),
   sources: z.array(z.object({ kind: z.enum(['turn', 'url']), ref: z.string().min(1).max(2000) }).strict()).max(40),
   tags: z.array(z.string().min(1).max(64).regex(/^[^\s,#]+$/u, 'Tags cannot contain whitespace, commas or #')).max(32)
-    .refine(tags => new Set(tags.map(tag => tag.normalize('NFKC').toLowerCase())).size === tags.length, 'Tags must be unique after Unicode/case normalization').optional()
+    .refine(tags => new Set(tags.map(tag => tag.normalize('NFKC').toLowerCase())).size === tags.length, 'Tags must be unique after Unicode/case normalization').optional(),
+  tagColors: z.record(z.string().min(1).max(64).refine(key => key === key.normalize('NFKC').toLowerCase(), 'Use normalized tag names'), z.enum(['blue', 'teal', 'green', 'amber', 'coral', 'pink', 'violet']))
+    .refine(colors => Object.keys(colors).length <= 32, 'Use at most 32 tag color overrides').optional()
 }).strict();
 export const edgeSchema = z.object({
   id, source: id, target: id,

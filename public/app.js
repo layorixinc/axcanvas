@@ -4,6 +4,7 @@ import { flowView, boundaryRoles } from '/flows.js';
 import { initWorkspace } from '/workspace.js';
 import { initGraphSearch } from '/search.js';
 import { selectedNeighborhood, placeNeighborhood, regionBounds } from '/neighborhood.js';
+import { TAG_PALETTE, tagKey, tagChips, tagColor } from '/tags.js';
 
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -32,7 +33,7 @@ function refreshWorkspace() {
 function closeEditSession() { clearTimeout(propertyTimer); editSession = null; }
 function editGroup(target) { if (editSession?.target !== target) editSession = { target, id: newId() }; return editSession.id; }
 function formSnapshot(kind) {
-  return JSON.stringify((kind === 'node' ? ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y'] : ['edge-source', 'edge-target', 'edge-relation']).map(id => $(id).value));
+  return JSON.stringify([(kind === 'node' ? ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y'] : ['edge-source', 'edge-target', 'edge-relation']).map(id => $(id).value), kind === 'node' ? [...$('node-tag-palette').querySelectorAll('select')].map(select => [select.dataset.tag, select.value]) : []]);
 }
 function saveFailure(error) { saveError = error.message; notice(`${error.message} Your input is preserved; save or discard it before continuing.`); refreshWorkspace(); }
 function scheduleProperties() {
@@ -183,7 +184,8 @@ function drawReviewSnapshot() {
     group.append(svg('rect', { class: 'body', width: 340, height: 150 }), svg('text', { x: 20, y: 27, class: 'kind', fill: colors[node.kind] }, names[node.kind].toUpperCase()));
     appendBadges(group, source, node.id, flowId);
     wrap(node.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
-    group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${node.status === 'confirmed' ? 'Confirmed' : 'Proposed'} · ${node.sources.length} sources`)); canvas.append(group);
+    appendTagChips(group, node);
+    group.append(svg('text', { x: 20, y: 144, class: 'status' }, `${node.status === 'confirmed' ? 'Confirmed' : 'Proposed'} · ${node.sources.length} sources`)); canvas.append(group);
   }
   for (const stroke of draft.strokes) { points.push(...stroke.points); canvas.append(svg('polyline', { points: stroke.points.map(p => `${p.x},${p.y}`).join(' '), fill: 'none', stroke: '#ffca70', 'stroke-width': 5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })); }
   let minX = 0, minY = 0, maxX = 400, maxY = 250;
@@ -401,8 +403,8 @@ function draw() {
     appendBadges(group, graph, n.id, activeFlowId);
     group.setAttribute('aria-label', `${names[n.kind]}: ${n.label}${qualifiedRoles(graph, n.id) ? `; ${qualifiedRoles(graph, n.id)}` : ''}`);
     wrap(n.label).forEach((line, i) => group.append(svg('text', { x: 20, y: 57 + i * 23, class: 'label' }, line)));
-    if (n.tags?.length) group.append(svg('text', { x: 20, y: 117, class: 'node-tags' }, Array.from(n.tags.map(tag => '#' + tag).join(' ')).slice(0, 48).join('')));
-    group.append(svg('text', { x: 20, y: 132, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
+    appendTagChips(group, n);
+    group.append(svg('text', { x: 20, y: 144, class: 'status' }, `${n.status === 'confirmed' ? 'Confirmed' : n.status === 'retired' ? 'Retired' : 'Proposed'}  ·  ${n.sources.length} source${n.sources.length === 1 ? '' : 's'}`));
     group.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (tool === 'connect') { if (connector) completeConnector(n.id); else { connector = { source: n.id, point: { x: p.x + 340, y: p.y + 75 } }; renderConnector(); } } else prepareSwitch().then(() => select(n.id, true, e.ctrlKey)).catch(saveFailure); } });
     group.addEventListener('pointerdown', e => nodePointerDown(e, n, group));
     if (tool === 'connect' || selection.has(n.id)) {
@@ -432,6 +434,7 @@ function select(id, discard = false, focus, additive = false) {
     $('node-label').value = selected.label; $('node-detail').value = selected.detail; $('node-status').value = selected.status;
     $('node-type').value = selected.kind;
     $('node-tags').value = (selected.tags ?? []).join(', ');
+    $('node-tag-palette').replaceChildren(); renderTagPalette();
     $('sources').replaceChildren();
     for (const source of selected.sources) {
       const li = document.createElement('li');
@@ -643,6 +646,7 @@ function layoutControls() {
   $('undo-layout').disabled = !layoutUndo || locked || unsaved;
   $('layout-direction').disabled = locked;
   for (const id of ['node-label', 'node-detail', 'node-tags', 'node-status', 'node-type', 'node-x', 'node-y', 'cancel', 'retire-node']) $(id).disabled = layoutLocked() || reviewBusy;
+  for (const select of $('node-tag-palette').querySelectorAll('select')) select.disabled = layoutLocked() || reviewBusy;
   $('save').disabled = locked || !selected;
   for (const id of ['pen', 'clear-ink', 'feedback-note', 'sessions', 'open-session', 'session-id', 'show-retired', 'add-node', 'connect-nodes', 'edge-picker', 'edge-source', 'edge-target', 'edge-relation', 'edge-reverse', 'edge-save', 'edge-cancel', 'edge-retire', 'discard-draft', 'inspect-latest']) $(id).disabled = locked || !graph;
   for (const id of ['edge-source', 'edge-target', 'edge-relation', 'feedback-note']) $(id).disabled = layoutLocked() || reviewBusy || !graph;
@@ -770,13 +774,35 @@ function nodeTags() {
   $('node-tags').setCustomValidity(message);
   return tags;
 }
+function appendTagChips(group, node) {
+  for (const chip of tagChips(node)) {
+    const item = svg('g', { class: 'tag-chip', 'aria-label': chip.title });
+    item.append(svg('title', {}, chip.title), svg('rect', { x: chip.x, y: 109, width: chip.width, height: 22, rx: 7, fill: chip.color }), svg('text', { x: chip.x + 8, y: 124, fill: '#142033', 'font-size': 12, 'font-weight': 700 }, chip.text));
+    group.append(item);
+  }
+}
+function renderTagPalette() {
+  const host = $('node-tag-palette'), existing = new Map([...host.querySelectorAll('select')].map(select => [select.dataset.tag, select.value])); host.replaceChildren();
+  for (const tag of nodeTags()) {
+    const label = document.createElement('label'); label.textContent = '#' + tag;
+    const select = document.createElement('select'); select.setAttribute('aria-label', `Color for #${tag}`); select.dataset.tag = tagKey(tag);
+    select.add(new Option('Automatic', ''));
+    for (const name of Object.keys(TAG_PALETTE)) select.add(new Option(name[0].toUpperCase() + name.slice(1), name));
+    select.value = existing.has(tagKey(tag)) ? existing.get(tagKey(tag)) : Object.hasOwn(selected?.tagColors ?? {}, tagKey(tag)) ? selected.tagColors[tagKey(tag)] : '';
+    select.style.borderColor = tagColor(selected ?? {}, tag);
+    select.disabled = layoutLocked() || reviewBusy;
+    label.append(select); host.append(label);
+  }
+}
+$('node-tags').addEventListener('change', renderTagPalette);
 async function saveNode(report = true) {
   if (!selected || !dirty || composing) return;
   $('node-label').setCustomValidity($('node-label').value.trim() ? '' : 'Enter a node label.');
   const tags = nodeTags();
+  const tagColors = Object.fromEntries([...$('node-tag-palette').querySelectorAll('select')].filter(select => select.value && tags.some(tag => tagKey(tag) === select.dataset.tag)).map(select => [select.dataset.tag, select.value]));
   if (!(report ? $('editor').reportValidity() : $('editor').checkValidity())) throw new Error('Complete the node form before saving.');
   const snapshot = formSnapshot('node'), creating = newNode;
-  const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value, ...(selected.tags !== undefined || tags.length ? { tags } : {}) };
+  const node = { ...selected, kind: $('node-type').value, label: $('node-label').value, detail: $('node-detail').value, status: $('node-status').value, ...(selected.tags !== undefined || tags.length ? { tags } : {}), ...(selected.tagColors !== undefined || Object.keys(tagColors).length ? { tagColors } : {}) };
   const operation = node.status === 'retired' && !creating ? { type: 'retire_node', nodeId: node.id } : { type: 'node', node };
   if (creating) { operation.position = { x: Number($('node-x').value), y: Number($('node-y').value) }; operation.flowId = nodeFormFlowId; }
   await changeDraft(operation, creating ? undefined : editGroup(`node:${node.id}`));
@@ -895,6 +921,7 @@ function placeNode(position) {
   $('editor').hidden = false; $('hint').hidden = true; $('new-node-position').hidden = false; $('inspector-title').textContent = 'Create node';
   $('node-id').textContent = selected.id; $('node-kind').textContent = names[placementKind]; $('node-type').value = placementKind; $('node-label').value = ''; $('node-detail').value = ''; $('node-status').value = 'proposed';
   $('node-tags').value = ''; $('node-tags').setCustomValidity('');
+  $('node-tag-palette').replaceChildren();
   $('node-x').value = Math.round(position.x); $('node-y').value = Math.round(position.y);
   selection.clear(); workspace.showPanel('properties');
   $('sources').replaceChildren(); $('node-label').focus(); layoutControls();

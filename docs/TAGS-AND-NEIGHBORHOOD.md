@@ -12,6 +12,14 @@ START/END remain structured, scoped flow roles: `flows[].startNodeIds` and `endN
 - Ordinary searches include tags; `#backend` requires the exact normalized tag, and `#backend database` combines that tag with a literal AND text term. Multiple hash terms require all tags. No inferred synonyms or automatic boundary roles.
 - AI reads graph_read in the intended session, keeps the full current node and its stable ID, modifies only tags, then graph_commit at the current baseRevision. Existing tags must be explicitly unioned when adding tags; a provided array replaces the tag set. Document concrete ordinary-HTTP examples; no new agent install/tool protocol.
 
+### Tag colors and boundary search
+
+Render high-contrast palette chips without changing node dimensions. An optional node-local `tagColors` record maps normalized tag names to palette names (blue, teal, green, amber, coral, pink, violet). Omitted color metadata preserves existing overrides for older clients; `{}` resets overrides. Default colors are deterministic by normalized tag name. Properties edits, review images and submitted snapshots use the same palette.
+
+Search `is:start` and `is:end` against actual active flow roles, never tag spelling. Current scope uses only that scope's roles; Whole graph searches roles across active flows. Combine role queries with tags and text using AND. A role dropdown also supports role-only search.
+
+Verified locally on Windows/Node 24.16/Chrome: 12 focused search/tag contract tests and TypeScript checks passed. Real browser interactions verified palette autosave, reload persistence, canonical isolation before Submit, actual role search and empty-query role filtering. Inspected the rendered three-line node labels and colored chips. Existing live database was backed up before server restart. No GitHub CI or other-platform run is claimed.
+
 ### Assigning tags from an AI agent
 
 Use the session ID from the existing canvas URL and the stable node ID shown in Properties. Read the current node before changing tags; preserve its label, detail, sources and status. This ordinary Node.js/HTTP example adds tags without replacing existing ones:

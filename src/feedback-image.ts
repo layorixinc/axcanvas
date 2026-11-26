@@ -1,5 +1,6 @@
 import type { Feedback } from './schema.ts';
 import { flowView, boundaryRoles } from '../public/flows.js';
+import { tagChips } from '../public/tags.js';
 
 const escapes: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' };
 function xml(value: string) { return value.replace(/[&<>"']/g, char => escapes[char]); }
@@ -28,6 +29,7 @@ export function feedbackImage(feedback: Feedback) {
   for (const node of nodes) {
     const p = positions.get(node.id)!;
     parts.push(`<rect x="${p.x}" y="${p.y}" width="340" height="150" rx="12" fill="#202c40" stroke="${feedback.nodeIds.includes(node.id) ? '#ffca70' : '#869fe3'}" stroke-width="2"/><text x="${p.x + 16}" y="${p.y + 28}" fill="#9eb6fa" font-size="12">${xml(node.kind)}</text><text x="${p.x + 16}" y="${p.y + 70}" fill="#eef2ff" font-size="18">${xml(node.label.slice(0, 32))}</text>`);
+    for (const chip of tagChips(node)) parts.push(`<g aria-label="${xml(chip.title)}"><title>${xml(chip.title)}</title><rect x="${p.x + chip.x}" y="${p.y + 109}" width="${chip.width}" height="22" rx="7" fill="${chip.color}"/><text x="${p.x + chip.x + 8}" y="${p.y + 124}" fill="#142033" font-size="12" font-weight="700">${xml(chip.text)}</text></g>`);
     const roles = boundaryRoles(graph, node.id);
     const current = roles.find(role => role.flowId === view.flow?.id);
     const label = current ? [current.start ? 'START' : '', current.end ? 'END' : ''].filter(Boolean).join(' + ') : '';

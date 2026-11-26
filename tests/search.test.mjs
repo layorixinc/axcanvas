@@ -72,3 +72,20 @@ test('tags support literal text and exact normalized hash terms without confusin
   assert.deepEqual(ids(searchNodes(index, '#START')), ['tagged']);
   assert.equal(g.flows, undefined, 'Searching a START tag must not invent flow roles');
 });
+
+test('boundary queries distinguish tags and scope-qualified roles, including dual roles', () => {
+  const g = graph([node('shared', 'Result', '', { tags: ['backend'] }), node('tag', 'Other', '', { tags: ['START'] })]);
+  g.flows = [
+    { id: 'one', label: 'Turn 1', scope: 'turn', nodeIds: ['shared'], edgeIds: [], startNodeIds: [], endNodeIds: ['shared'] },
+    { id: 'two', label: 'Turn 2', scope: 'turn', nodeIds: ['shared'], edgeIds: [], startNodeIds: ['shared'], endNodeIds: [] },
+    { id: 'old', label: 'Old', scope: 'custom', status: 'retired', nodeIds: ['tag'], edgeIds: [], startNodeIds: ['tag'], endNodeIds: [] },
+  ];
+  const index = createSearchIndex(g);
+  assert.deepEqual(ids(searchNodes(index, 'is:start')), ['shared']);
+  assert.deepEqual(ids(searchNodes(index, 'is:start', { roleFlowId: 'one' })), []);
+  assert.deepEqual(ids(searchNodes(index, 'is:end #backend', { roleFlowId: 'one' })), ['shared']);
+  assert.deepEqual(ids(searchNodes(index, '', { role: 'start', roleFlowId: 'two' })), ['shared']);
+  assert.deepEqual(ids(searchNodes(index, 'is:start is:end')), ['shared']);
+  assert.deepEqual(ids(searchNodes(index, '#START')), ['tag']);
+  assert.match(searchNodes(index, 'is:end').matches[0].snippet, /Turn 1 · END/);
+});

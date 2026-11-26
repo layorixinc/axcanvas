@@ -73,7 +73,7 @@ function applyLeaf(work: DraftWork, base: GraphView, operation: DraftLeafOperati
     case 'node': {
       const index = g.nodes.findIndex(n => n.id === operation.node.id);
       const previous = g.nodes[index];
-      const updated = operation.node.tags === undefined && previous?.tags !== undefined ? { ...operation.node, tags: previous.tags } : operation.node;
+      const updated = { ...operation.node, ...(operation.node.tags === undefined && previous?.tags !== undefined ? { tags: previous.tags } : {}), ...(operation.node.tagColors === undefined && previous?.tagColors !== undefined ? { tagColors: previous.tagColors } : {}) };
       if (index < 0) g.nodes.push(updated); else g.nodes[index] = updated;
       if (scoped && !scoped.nodeIds.includes(operation.node.id)) scoped.nodeIds.push(operation.node.id);
       if (operation.position) (geometry()?.positions ?? g.positions)[operation.node.id] = operation.position;
